@@ -119,8 +119,11 @@ def filter_above_ma(data: pd.DataFrame, ma_period: int = 100) -> pd.DataFrame:
     df = pd.DataFrame(results)
 
     # Count results
-    passed_count = len(df[df['above_ma']]) if not df.empty else 0
-    failed_count = len(tickers) - len(results) + len(df[not df['above_ma']]) if not df.empty else len(tickers)
+    passed_count = len(df[df['above_ma'] == True]) if not df.empty else 0
+    failed_count = len(df[df['above_ma'] == False]) if not df.empty else 0
+    # Add skipped tickers (those that had no results at all)
+    skipped_count = len(tickers) - len(results)
+    failed_count += skipped_count
 
     logger.info(f"MA Filter Results: {passed_count} passed, {failed_count} failed")
 
