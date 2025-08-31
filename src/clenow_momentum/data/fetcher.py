@@ -1,98 +1,108 @@
 
+from io import StringIO
+
 import pandas as pd
 import requests
 import yfinance as yf
 from bs4 import BeautifulSoup
 from loguru import logger
-from io import StringIO
 
+
+def _try_spy_holdings() -> list[str] | None:
+    """Try to get S&P 500 tickers from SPY ETF holdings."""
+    try:
+        spy = yf.Ticker("SPY")
+        holdings = spy.get_holdings()
+        if holdings is not None and len(holdings) > 0:
+            tickers = holdings.index.tolist()
+            tickers = [ticker.split('.')[0] for ticker in tickers]
+            logger.success(f"Successfully fetched {len(tickers)} S&P 500 tickers via SPY holdings")
+            return tickers
+    except Exception as e:
+        logger.debug(f"get_holdings method failed: {e}")
+    return None
+
+
+def _try_spy_info() -> list[str] | None:
+    """Try to get S&P 500 tickers from SPY ETF info."""
+    try:
+        spy = yf.Ticker("SPY")
+        info = spy.info
+        if 'holdings' in info:
+            holdings = info['holdings']
+            if holdings and len(holdings) > 0:
+                tickers = [h.get('symbol', h.get('ticker', '')) for h in holdings if h.get('symbol') or h.get('ticker')]
+                tickers = [t for t in tickers if t]  # Remove empty strings
+                logger.success(f"Successfully fetched {len(tickers)} S&P 500 tickers via SPY info")
+                return tickers
+    except Exception as e:
+        logger.debug(f"info holdings method failed: {e}")
+    return None
+
+
+def _get_major_sp500_tickers() -> list[str]:
+    """Get a curated list of major S&P 500 companies."""
+    major_sp500 = [
+        # Technology giants
+        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+        "AVGO", "ORCL", "CRM", "ADBE", "NFLX", "AMD", "INTC", "CSCO",
+
+        # Healthcare & Pharma leaders
+        "UNH", "JNJ", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "LLY",
+
+        # Financial powerhouses
+        "BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS",
+
+        # Consumer & Industrial leaders
+        "HD", "PG", "KO", "PEP", "WMT", "DIS", "MCD", "NKE", "BA", "CAT",
+
+        # Energy & Utilities
+        "XOM", "CVX", "NEE", "DUK",
+
+        # Communication & Media
+        "VZ", "T", "TMUS", "CMCSA"
+    ]
+
+    # Verify these tickers exist and are tradeable
+    verified_tickers = []
+    logger.info(f"Verifying {len(major_sp500)} major S&P 500 tickers...")
+
+    for ticker in major_sp500:
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.fast_info
+            if info and hasattr(info, 'last_price') and info.last_price:
+                verified_tickers.append(ticker)
+        except Exception as e:
+            logger.debug(f"Could not verify ticker {ticker}: {e}")
+
+    logger.success(f"Verified {len(verified_tickers)} major S&P 500 tickers")
+    return verified_tickers
 
 
 def get_sp500_tickers_yfinance() -> list[str]:
     """
     Fetch S&P 500 tickers using yfinance as fallback method.
-    
+
     Returns:
         List of S&P 500 stock tickers, or empty list if fetch fails
     """
+    logger.info("Attempting to fetch S&P 500 tickers via yfinance...")
+
+    # Method 1: Try SPY holdings
+    tickers = _try_spy_holdings()
+    if tickers:
+        return tickers
+
+    # Method 2: Try SPY info
+    tickers = _try_spy_info()
+    if tickers:
+        return tickers
+
+    # Method 3: Use curated list as last resort
     try:
-        # Method 1: Try to get S&P 500 constituents directly
-        logger.info("Attempting to fetch S&P 500 tickers via yfinance...")
-        
-        # Get S&P 500 ETF (SPY) holdings as proxy for S&P 500 constituents
-        spy = yf.Ticker("SPY")
-        
-        # Try multiple methods to get S&P 500 constituents
-        
-        # Method 1a: Try get_holdings (newer yfinance)
-        try:
-            holdings = spy.get_holdings()
-            if holdings is not None and len(holdings) > 0:
-                tickers = holdings.index.tolist()
-                tickers = [ticker.split('.')[0] for ticker in tickers]
-                logger.success(f"Successfully fetched {len(tickers)} S&P 500 tickers via SPY holdings")
-                return tickers
-        except:
-            logger.debug("get_holdings method failed")
-            
-        # Method 1b: Try get_info and look for holdings
-        try:
-            info = spy.info
-            if 'holdings' in info:
-                holdings = info['holdings']
-                if holdings and len(holdings) > 0:
-                    tickers = [h.get('symbol', h.get('ticker', '')) for h in holdings if h.get('symbol') or h.get('ticker')]
-                    tickers = [t for t in tickers if t]  # Remove empty strings
-                    logger.success(f"Successfully fetched {len(tickers)} S&P 500 tickers via SPY info")
-                    return tickers
-        except:
-            logger.debug("info holdings method failed")
-            
-    except Exception as e:
-        logger.debug(f"SPY holdings method failed: {e}")
-    
-    try:
-        # Method 2: Use a predefined list of major companies as last resort
         logger.info("Using curated list of major S&P 500 companies...")
-        
-        # Top companies by market cap - these are definitely in S&P 500
-        major_sp500 = [
-            # Technology giants
-            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", 
-            "AVGO", "ORCL", "CRM", "ADBE", "NFLX", "AMD", "INTC", "CSCO",
-            
-            # Healthcare & Pharma leaders
-            "UNH", "JNJ", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "LLY",
-            
-            # Financial powerhouses  
-            "BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS",
-            
-            # Consumer & Industrial leaders
-            "HD", "PG", "KO", "PEP", "WMT", "DIS", "MCD", "NKE", "BA", "CAT",
-            
-            # Energy & Utilities
-            "XOM", "CVX", "NEE", "DUK",
-            
-            # Communication & Media
-            "VZ", "T", "TMUS", "CMCSA"
-        ]
-        
-        # Verify these tickers exist and are tradeable
-        verified_tickers = []
-        logger.info(f"Verifying {len(major_sp500)} major S&P 500 tickers...")
-        
-        for ticker in major_sp500:
-            try:
-                stock = yf.Ticker(ticker)
-                info = stock.fast_info
-                if info and hasattr(info, 'last_price') and info.last_price:
-                    verified_tickers.append(ticker)
-            except:
-                logger.debug(f"Could not verify ticker: {ticker}")
-                
-        logger.success(f"Verified {len(verified_tickers)} major S&P 500 tickers")
-        return verified_tickers
-        
+        return _get_major_sp500_tickers()
     except Exception as e:
         logger.error(f"All fallback methods failed: {e}")
         return []
@@ -104,7 +114,7 @@ def get_sp500_tickers() -> list[str]:
     Returns a list of tickers, or an empty list if fetching fails.
     """
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    
+
     # Add headers to avoid 403 Forbidden errors
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -113,7 +123,7 @@ def get_sp500_tickers() -> list[str]:
         'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
     }
-    
+
     try:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()

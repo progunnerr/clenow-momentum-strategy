@@ -1,8 +1,8 @@
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 from loguru import logger
+from scipy import stats
 
 
 def calculate_exponential_regression_slope(
@@ -87,22 +87,21 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     results = []
     processed_count = 0
     skipped_count = 0
-    
+
     # Handle yfinance group_by="ticker" structure
     # From your screenshot: data structure is like data['AAPL'] -> DataFrame with ['Open', 'High', 'Low', 'Close', 'Volume']
     if isinstance(data.columns, pd.MultiIndex):
         # Get unique ticker symbols from the first level
         tickers = data.columns.get_level_values(0).unique()
         logger.info(f"Calculating momentum scores for {len(tickers)} stocks with group_by ticker structure (period: {period} days)")
-        
+
         # Log basic data structure info
         logger.debug(f"Processing {len(tickers)} tickers from MultiIndex DataFrame (shape: {data.shape})")
-        
         for ticker in tickers:
             try:
                 # Access the ticker's data - this should be a DataFrame with OHLCV columns
                 ticker_data = data[ticker]
-                
+
                 # Get the Close prices
                 if 'Close' in ticker_data.columns:
                     prices = ticker_data['Close']
@@ -110,12 +109,10 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
                     logger.debug(f"No Close column found for {ticker}, columns: {ticker_data.columns.tolist()}")
                     skipped_count += 1
                     continue
-                    
             except (KeyError, AttributeError) as e:
                 logger.debug(f"Error accessing {ticker}: {e}")
                 skipped_count += 1
                 continue
-                
             # Skip if not enough data
             if len(prices.dropna()) < period:
                 logger.debug(f"Skipping {ticker}: insufficient data ({len(prices.dropna())} < {period})")
@@ -146,17 +143,14 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
                 }
             )
             processed_count += 1
-                
     else:
         # Fallback: Simple column structure (single level)
         # This handles cases where data might be pre-processed or single ticker
         tickers = data.columns
         logger.info(f"Calculating momentum scores for {len(tickers)} stocks with simple columns (period: {period} days)")
-        
         for ticker in tickers:
             # Simple column structure - assume it's already price data
             prices = data[ticker]
-            
             # Skip if not enough data
             if len(prices.dropna()) < period:
                 logger.debug(f"Skipping {ticker}: insufficient data ({len(prices.dropna())} < {period})")
@@ -193,14 +187,12 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     # Sort by momentum score (descending)
     df = df.sort_values("momentum_score", ascending=False, na_position="last")
     df_final = df.reset_index(drop=True)
-    
     # Log summary
     valid_scores = df_final.dropna(subset=['momentum_score'])
     logger.success(f"Momentum calculation complete: {processed_count} processed, {skipped_count} skipped, {len(valid_scores)} valid scores")
     if len(valid_scores) > 0:
         top_stock = valid_scores.iloc[0]
         logger.info(f"Top momentum stock: {top_stock['ticker']} (score: {top_stock['momentum_score']:.3f})")
-    
     return df_final
 
 
@@ -218,7 +210,6 @@ def get_top_momentum_stocks(momentum_df: pd.DataFrame, top_pct: float = 0.20) ->
     """
     # Remove NaN momentum scores
     valid_scores = momentum_df.dropna(subset=["momentum_score"])
-    
     logger.info(f"Selecting top {top_pct:.0%} from {len(valid_scores)} stocks with valid momentum scores")
 
     # Calculate number of stocks to select

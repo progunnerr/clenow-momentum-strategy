@@ -4,9 +4,10 @@ Utility modules for Clenow Momentum Strategy.
 This module configures logging for the entire application.
 """
 
-from loguru import logger
 import sys
 from pathlib import Path
+
+from loguru import logger
 
 # Create logs directory if it doesn't exist
 logs_dir = Path(__file__).parent.parent.parent.parent / "logs"
