@@ -126,9 +126,10 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
 
             # Calculate additional metrics
             current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
+            # Calculate return over the period (need to go back period+1 to get period days of returns)
             period_return = (
-                ((current_price / prices.iloc[-period]) - 1) * 100
-                if len(prices) >= period and not pd.isna(prices.iloc[-period])
+                ((current_price / prices.iloc[-(period+1)]) - 1) * 100
+                if len(prices) > period and not pd.isna(prices.iloc[-(period+1)])
                 else np.nan
             )
 
@@ -164,9 +165,10 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
 
             # Calculate additional metrics
             current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
+            # Calculate return over the period (need to go back period+1 to get period days of returns)
             period_return = (
-                ((current_price / prices.iloc[-period]) - 1) * 100
-                if len(prices) >= period and not pd.isna(prices.iloc[-period])
+                ((current_price / prices.iloc[-(period+1)]) - 1) * 100
+                if len(prices) > period and not pd.isna(prices.iloc[-(period+1)])
                 else np.nan
             )
 

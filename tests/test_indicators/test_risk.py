@@ -78,8 +78,9 @@ class TestATR:
         assert isinstance(atr, pd.Series)
         assert len(atr) == len(data)
 
-        # First values should be NaN until we have enough data
-        assert pd.isna(atr.iloc[0])
+        # With Wilder's smoothing (EWM), first value is not NaN
+        # EWM starts calculating from the first value
+        assert not pd.isna(atr.iloc[0])
 
         # Later values should be positive
         assert atr.iloc[-1] > 0
@@ -170,10 +171,11 @@ class TestPositionSizing:
         )
 
         # Risk amount = $1M * 0.1% = $1,000
-        # Shares = $1,000 / $2 ATR = 500 shares
-        assert result['shares'] == 500
-        assert result['investment_amount'] == 50000  # 500 * $100
-        assert result['actual_risk'] == 1000  # 500 * $2
+        # Stop loss distance = $2 ATR * 2.0 (default multiplier) = $4
+        # Shares = $1,000 / $4 = 250 shares
+        assert result['shares'] == 250
+        assert result['investment_amount'] == 25000  # 250 * $100
+        assert result['actual_risk'] == 1000  # 250 * $4
         assert result['limited_by'] == 'risk_limit'
 
     def test_position_size_limited_by_max_position(self):
@@ -411,5 +413,7 @@ class TestEdgeCases:
         )
 
         # Should result in small position
-        assert result['shares'] == 20  # $1000 / $50 ATR
-        assert result['investment_amount'] == 2000
+        # Stop loss distance = $50 ATR * 2.0 = $100
+        # Shares = $1000 / $100 = 10 shares
+        assert result['shares'] == 10  # $1000 / ($50 ATR * 2)
+        assert result['investment_amount'] == 1000  # 10 * $100

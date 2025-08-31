@@ -61,8 +61,9 @@ def calculate_atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
     # Calculate True Range
     true_range = calculate_true_range(data['High'], data['Low'], data['Close'])
 
-    # Calculate ATR as exponential moving average of True Range
-    atr = true_range.ewm(span=period, adjust=False).mean()
+    # Calculate ATR using Wilder's smoothing (equivalent to EMA with alpha=1/period)
+    # Wilder's smoothing uses com=period-1 in pandas
+    atr = true_range.ewm(com=period-1, adjust=False).mean()
 
     return atr
 
@@ -139,13 +140,14 @@ def calculate_atr_for_universe(stock_data: pd.DataFrame, period: int = 14) -> pd
 
 def calculate_position_size(account_value: float, risk_per_trade: float,
                           stock_price: float, atr: float,
-                          max_position_pct: float = 0.05) -> dict:
+                          max_position_pct: float = 0.05,
+                          stop_loss_multiplier: float = 2.0) -> dict:
     """
     Calculate position size based on Clenow's risk management rules.
 
     The position size is determined by:
     1. Risk per trade (default 0.1% of account)
-    2. Stock's ATR (volatility)
+    2. Stock's ATR (volatility) with stop loss multiplier
     3. Maximum position size limit (default 5% of account)
 
     Args:
@@ -154,6 +156,7 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
         stock_price: Current stock price
         atr: Stock's Average True Range
         max_position_pct: Maximum position as percentage of account (default 0.05 = 5%)
+        stop_loss_multiplier: ATR multiplier for stop loss (default 2.0 = 2x ATR)
 
     Returns:
         Dictionary with position sizing details
@@ -167,9 +170,12 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
     # Calculate risk amount in dollars
     risk_amount = account_value * risk_per_trade
 
-    # Calculate position size based on ATR
-    # Position size = Risk Amount / ATR
-    shares_based_on_risk = risk_amount / atr
+    # Calculate stop loss distance (typically 2-3x ATR per Clenow)
+    stop_loss_distance = atr * stop_loss_multiplier
+
+    # Calculate position size based on ATR and stop loss
+    # Position size = Risk Amount / Stop Loss Distance
+    shares_based_on_risk = risk_amount / stop_loss_distance
 
     # Calculate maximum shares based on position limit
     max_position_value = account_value * max_position_pct
@@ -182,11 +188,14 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
     # Calculate actual investment amount
     investment_amount = shares * stock_price
 
-    # Calculate actual risk (may be less than target if position limited)
-    actual_risk = shares * atr
+    # Calculate actual risk (based on stop loss distance)
+    actual_risk = shares * stop_loss_distance
 
     # Calculate position as percentage of account
     position_pct = investment_amount / account_value
+
+    # Calculate stop loss price
+    stop_loss_price = stock_price - stop_loss_distance
 
     return {
         'shares': shares,
@@ -195,13 +204,17 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
         'target_risk': risk_amount,
         'actual_risk': actual_risk,
         'risk_utilization': actual_risk / risk_amount if risk_amount > 0 else 0,
-        'limited_by': 'position_limit' if shares == max_shares else 'risk_limit'
+        'limited_by': 'position_limit' if shares == max_shares else 'risk_limit',
+        'stop_loss_price': stop_loss_price,
+        'stop_loss_distance': stop_loss_distance,
+        'stop_loss_multiplier': stop_loss_multiplier
     }
 
 
 def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                    account_value: float = 1000000, risk_per_trade: float = 0.001,
-                   atr_period: int = 14, allocation_method: str = "equal_risk") -> pd.DataFrame:
+                   atr_period: int = 14, allocation_method: str = "equal_risk",
+                   stop_loss_multiplier: float = 2.0) -> pd.DataFrame:
     """
     Build complete portfolio with position sizing for all filtered stocks.
 
@@ -212,6 +225,7 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
         risk_per_trade: Risk per trade as percentage (default 0.1%)
         atr_period: ATR calculation period (default 14)
         allocation_method: "equal_risk" or "equal_dollar"
+        stop_loss_multiplier: ATR multiplier for stop loss (default 2.0 = 2x ATR)
 
     Returns:
         DataFrame with complete portfolio including position sizes
@@ -219,6 +233,12 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
     logger.info(f"Building portfolio for {len(filtered_stocks)} stocks...")
     logger.info(f"Account Value: ${account_value:,.0f}")
     logger.info(f"Allocation Method: {allocation_method}")
+    
+    # Handle empty filtered stocks
+    if filtered_stocks.empty:
+        logger.warning("No stocks to build portfolio with")
+        return pd.DataFrame()
+    
     if allocation_method == "equal_risk":
         logger.info(f"Risk per trade: {risk_per_trade:.3%}")
     else:
@@ -271,8 +291,10 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
             investment = shares * current_price
             position_pct = investment / account_value
 
-            # Calculate risk (ATR-based)
-            actual_risk = shares * row['atr']
+            # Calculate stop loss and risk
+            stop_loss_distance = row['atr'] * stop_loss_multiplier
+            stop_loss_price = current_price - stop_loss_distance
+            actual_risk = shares * stop_loss_distance
 
             result = {
                 'ticker': ticker,
@@ -283,9 +305,12 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                 'investment': investment,
                 'position_pct': position_pct,
                 'target_risk': position_value * risk_per_trade,  # What risk would be
-                'actual_risk': actual_risk,  # Actual ATR-based risk
+                'actual_risk': actual_risk,  # Actual stop-loss based risk
                 'risk_utilization': 1.0,  # Always 100% for equal dollar
-                'limited_by': 'equal_dollar'
+                'limited_by': 'equal_dollar',
+                'stop_loss_price': stop_loss_price,
+                'stop_loss_distance': stop_loss_distance,
+                'stop_loss_multiplier': stop_loss_multiplier
             }
 
             # Add filter-specific data if available
@@ -314,7 +339,8 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                     account_value=account_value,
                     risk_per_trade=risk_per_trade,
                     stock_price=current_price,
-                    atr=row['atr']
+                    atr=row['atr'],
+                    stop_loss_multiplier=stop_loss_multiplier
                 )
 
                 # Add to results
@@ -329,7 +355,10 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                     'target_risk': position['target_risk'],
                     'actual_risk': position['actual_risk'],
                     'risk_utilization': position['risk_utilization'],
-                    'limited_by': position['limited_by']
+                    'limited_by': position['limited_by'],
+                    'stop_loss_price': position['stop_loss_price'],
+                    'stop_loss_distance': position['stop_loss_distance'],
+                    'stop_loss_multiplier': position['stop_loss_multiplier']
                 }
 
                 # Add filter-specific data if available
