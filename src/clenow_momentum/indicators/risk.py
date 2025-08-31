@@ -412,7 +412,7 @@ def apply_risk_limits(portfolio_df: pd.DataFrame, max_positions: int = 20,
 
     Args:
         portfolio_df: Portfolio DataFrame
-        max_positions: Maximum number of positions (default 20)
+        max_positions: Maximum number of positions. If None, this filter is skipped. (default 20)
         min_position_value: Minimum position value (default $10,000)
 
     Returns:
@@ -431,7 +431,8 @@ def apply_risk_limits(portfolio_df: pd.DataFrame, max_positions: int = 20,
         logger.info("Minimum position filter skipped for equal dollar allocation")
 
     # Limit to maximum number of positions (keep highest momentum stocks)
-    portfolio_df = portfolio_df.head(max_positions).copy()
+    if max_positions is not None:
+        portfolio_df = portfolio_df.head(max_positions).copy()
 
     # Re-rank after filtering
     portfolio_df['portfolio_rank'] = range(1, len(portfolio_df) + 1)

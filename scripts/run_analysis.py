@@ -110,6 +110,7 @@ def main():
     # Step 5: Apply trading filters to find eligible stocks
     print("Step 5: Applying trading filters...")
 
+    stocks_for_portfolio = pd.DataFrame()
     if trading_allowed:
         # Filter the entire universe of stocks with valid momentum scores
         stocks_to_filter = momentum_df.dropna(subset=['momentum_score'])
@@ -121,8 +122,13 @@ def main():
             gap_threshold=config['gap_threshold']
         )
 
-        print(f"✅ {len(filtered_stocks)} stocks passed all filters and are eligible for portfolio inclusion.")
-        final_stocks = filtered_stocks
+        print(f"✅ {len(filtered_stocks)} stocks passed all filters.")
+        
+        # For efficiency, select top stocks for portfolio construction before sizing
+        stocks_for_portfolio = filtered_stocks.head(config['max_positions'])
+        print(f"📈 Selecting top {len(stocks_for_portfolio)} momentum stocks for portfolio (max_positions: {config['max_positions']}).")
+        
+        final_stocks = filtered_stocks # Keep all filtered stocks for display
     else:
         print("⛔ Market regime not favorable - skipping individual stock filters")
         print(f"📊 Showing top {config['top_momentum_pct']:.0%} momentum rankings for informational purposes only...")
@@ -133,12 +139,12 @@ def main():
 
     # Step 6: Portfolio Construction (if trading allowed)
     portfolio_df = pd.DataFrame()
-    if trading_allowed and not final_stocks.empty:
+    if trading_allowed and not stocks_for_portfolio.empty:
         print("Step 6: Portfolio Construction & Position Sizing...")
 
         # Build portfolio with position sizing (Clenow's risk parity method)
         portfolio_df = build_portfolio(
-            filtered_stocks=final_stocks,
+            filtered_stocks=stocks_for_portfolio,
             stock_data=stock_data,
             account_value=config['account_value'],
             risk_per_trade=config['risk_per_trade'],
@@ -148,10 +154,10 @@ def main():
         )
 
         if not portfolio_df.empty:
-            # Apply risk limits - positions and minimum value
+            # Apply minimum position value limit. max_positions is already handled.
             portfolio_df = apply_risk_limits(
                 portfolio_df=portfolio_df,
-                max_positions=config['max_positions'],
+                max_positions=None, # Already sliced to max_positions
                 min_position_value=config['min_position_value']
             )
 

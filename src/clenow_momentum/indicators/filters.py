@@ -141,10 +141,6 @@ def filter_above_ma(data: pd.DataFrame, ma_period: int = 100) -> pd.DataFrame:
 
     df = pd.DataFrame(results)
 
-    if not df.empty:
-        # Sort by price vs MA ratio (best performers first)
-        df = df.sort_values('price_vs_ma', ascending=False)
-
     logger.info(f"MA Filter Results: {passed_count} passed, {failed_count} failed")
 
     return df
