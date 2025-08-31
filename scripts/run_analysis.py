@@ -47,11 +47,10 @@ def main():
     print("Step 2: Fetching stock data (6 months)...")
     print("⏳ This may take a moment...")
 
-    # Use smaller subset for testing
-    test_tickers = tickers[:50]  # First 50 stocks for faster testing
-    print(f"🧪 Using first {len(test_tickers)} stocks for testing")
+    # Use all S&P 500 tickers
+    print(f"📈 Processing all {len(tickers)} S&P 500 stocks")
 
-    stock_data = get_stock_data(test_tickers, period="6mo")
+    stock_data = get_stock_data(tickers, period="6mo")
 
     if stock_data is None:
         print("❌ Could not retrieve stock data. Exiting.")
