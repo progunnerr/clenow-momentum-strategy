@@ -25,6 +25,16 @@ from clenow_momentum.indicators.momentum import (
 )
 from clenow_momentum.indicators.risk import apply_risk_limits, build_portfolio
 from clenow_momentum.strategy.market_regime import check_market_regime, should_trade_momentum
+from clenow_momentum.strategy.rebalancing import (
+    Portfolio,
+    create_rebalancing_summary,
+    generate_rebalancing_orders,
+    load_portfolio_state,
+)
+from clenow_momentum.strategy.trading_schedule import (
+    get_trading_calendar_summary,
+    should_execute_trades,
+)
 from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config
 
 
@@ -38,6 +48,27 @@ def main():
 
     # Load configuration
     config = load_config()
+
+    # Step 0: Check Trading Schedule
+    print("TRADING SCHEDULE STATUS")
+    print("-" * 30)
+
+    bypass_wednesday = config.get('bypass_wednesday_check', False)
+    calendar_summary = get_trading_calendar_summary(bypass_wednesday)
+    can_trade, trade_reason = should_execute_trades(bypass_wednesday=bypass_wednesday)
+
+    print(f"📅 Today: {calendar_summary['current_date']} ({calendar_summary['current_weekday']})")
+    if bypass_wednesday:
+        print("⚠️  TESTING MODE: Wednesday-only restriction bypassed")
+    print(f"🎯 Trading Day: {'✅ Yes' if calendar_summary['is_trading_day'] else '❌ No'}")
+    print(f"🔄 Rebalancing Day: {'✅ Yes' if calendar_summary['is_rebalancing_day'] else '❌ No'}")
+    print(f"📊 Trading Status: {trade_reason}")
+
+    if not can_trade:
+        print(f"\n⏭️  Next Trading Day: {calendar_summary['next_trading_day']} (in {calendar_summary['days_until_next_trading']} days)")
+
+    print(f"🔄 Next Rebalancing: {calendar_summary['next_rebalancing_date']} (in {calendar_summary['days_until_next_rebalancing']} days)")
+    print()
 
     # Show position sizing guidance
     sizing_guide = get_position_sizing_guide(config['account_value'])
@@ -123,11 +154,11 @@ def main():
         )
 
         print(f"✅ {len(filtered_stocks)} stocks passed all filters.")
-        
+
         # For efficiency, select top stocks for portfolio construction before sizing
         stocks_for_portfolio = filtered_stocks.head(config['max_positions'])
         print(f"📈 Selecting top {len(stocks_for_portfolio)} momentum stocks for portfolio (max_positions: {config['max_positions']}).")
-        
+
         final_stocks = filtered_stocks # Keep all filtered stocks for display
     else:
         print("⛔ Market regime not favorable - skipping individual stock filters")
@@ -274,6 +305,121 @@ def main():
             elif not trading_allowed:
                 print(f"⛔ Trading suspended due to {market_regime['regime']} market regime")
             print()
+
+    # Step 8: Rebalancing Analysis (if it's a rebalancing day and we have a portfolio)
+    if calendar_summary['is_rebalancing_day'] and not portfolio_df.empty and config.get('simulate_rebalancing', True):
+        print()
+        print("=" * 60)
+        print("🔄 REBALANCING ANALYSIS")
+        print("=" * 60)
+
+        # Load current portfolio
+        from pathlib import Path
+        portfolio_file = Path(config.get('portfolio_state_file', 'data/portfolio_state.json'))
+        current_portfolio = load_portfolio_state(portfolio_file)
+
+        if current_portfolio.num_positions > 0:
+            print(f"📊 Current Portfolio: {current_portfolio.num_positions} positions, ${current_portfolio.cash:,.0f} cash")
+
+            # Generate rebalancing orders
+            rebalancing_orders = generate_rebalancing_orders(
+                current_portfolio=current_portfolio,
+                target_portfolio=portfolio_df,
+                stock_data=stock_data,
+                account_value=config['account_value'],
+                cash_buffer=config.get('cash_buffer', 0.02)
+            )
+
+            if rebalancing_orders:
+                print(f"📝 Generated {len(rebalancing_orders)} rebalancing orders")
+                print()
+
+                # Show rebalancing summary
+                summary = create_rebalancing_summary(current_portfolio, rebalancing_orders, portfolio_df)
+
+                print("REBALANCING SUMMARY")
+                print("-" * 50)
+                print(f"Current Positions: {summary['current_positions']}")
+                print(f"Target Positions: {summary['target_positions']}")
+                print(f"Portfolio Turnover: {summary['turnover_pct']:.1f}%")
+                print()
+                print("Orders to Execute:")
+                print(f"  - Sells: {summary['num_sells']} (${summary['total_sell_value']:,.0f})")
+                print(f"  - Buys: {summary['num_buys']} (${summary['total_buy_value']:,.0f})")
+                print()
+                print(f"Positions to Add: {', '.join(summary['positions_to_add']) if summary['positions_to_add'] else 'None'}")
+                print(f"Positions to Remove: {', '.join(summary['positions_to_remove']) if summary['positions_to_remove'] else 'None'}")
+                print(f"Positions to Keep: {len(summary['positions_to_keep'])}")
+                print()
+                print(f"Expected Cash After: ${summary['expected_cash']:,.0f}")
+
+                # Show detailed orders
+                print()
+                print("REBALANCING ORDERS")
+                print("-" * 50)
+
+                order_data = []
+                # Show all SELL orders first
+                sell_orders = [o for o in rebalancing_orders if o.order_type.value == "SELL"]
+                buy_orders = [o for o in rebalancing_orders if o.order_type.value == "BUY"]
+                
+                print(f"\n📉 SELL ORDERS ({len(sell_orders)} total):")
+                for order in sell_orders:
+                    order_data.append([
+                        order.order_type.value,
+                        order.ticker,
+                        order.shares,
+                        f"${order.current_price:.2f}",
+                        f"${order.order_value:,.0f}",
+                        order.reason[:40] + "..." if len(order.reason) > 40 else order.reason
+                    ])
+                
+                if sell_orders:
+                    headers = ["Type", "Ticker", "Shares", "Price", "Value", "Reason"]
+                    print(tabulate(order_data, headers=headers, tablefmt="grid"))
+                    
+                print(f"\n📈 BUY ORDERS ({len(buy_orders)} total):")
+                order_data = []
+                for order in buy_orders:
+                    order_data.append([
+                        order.order_type.value,
+                        order.ticker,
+                        order.shares,
+                        f"${order.current_price:.2f}",
+                        f"${order.order_value:,.0f}",
+                        order.reason[:40] + "..." if len(order.reason) > 40 else order.reason
+                    ])
+                
+                if buy_orders:
+                    print(tabulate(order_data, headers=headers, tablefmt="grid"))
+                
+                # Add execution note
+                print("\n💡 EXECUTION NOTE:")
+                print("Execute SELL orders first to free up capital, then execute BUY orders.")
+                print("Some BUY orders may not be shown due to insufficient cash simulation.")
+            else:
+                print("✅ No rebalancing needed - portfolio is already aligned with targets")
+        else:
+            print("📊 No existing portfolio found - this would be initial portfolio construction")
+            print(f"💼 Would invest in {len(portfolio_df)} positions")
+
+            # Optionally save the new portfolio state
+            if config.get('simulate_rebalancing', True):
+                print()
+                print("💾 Simulating initial portfolio creation...")
+                # Create initial portfolio from target
+                new_portfolio = Portfolio(cash=config['account_value'])
+                new_portfolio.last_rebalance_date = datetime.now(UTC)
+                # Note: In production, would create Position objects from portfolio_df
+                # save_portfolio_state(new_portfolio, portfolio_file)
+                print("✅ Portfolio state ready for tracking")
+
+    elif calendar_summary['is_rebalancing_day'] and portfolio_df.empty:
+        print()
+        print("⚠️  Today is a rebalancing day but no valid portfolio could be constructed")
+    elif calendar_summary['is_rebalancing_day']:
+        print()
+        print("ℹ️  Rebalancing simulation disabled in configuration")
 
     print("✅ Analysis complete!")
     return 0

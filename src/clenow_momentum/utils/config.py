@@ -46,6 +46,13 @@ def load_config() -> dict:
         'gap_threshold': float(os.getenv('GAP_THRESHOLD', '0.15')),
         'atr_period': int(os.getenv('ATR_PERIOD', '14')),
         'stop_loss_multiplier': float(os.getenv('STOP_LOSS_MULTIPLIER', '3.0')),  # Clenow uses 3x ATR
+
+        # Rebalancing Parameters
+        'rebalancing_frequency': os.getenv('REBALANCING_FREQUENCY', 'bi-monthly'),  # bi-monthly or monthly
+        'cash_buffer': float(os.getenv('CASH_BUFFER', '0.02')),  # 2% cash buffer
+        'portfolio_state_file': os.getenv('PORTFOLIO_STATE_FILE', 'data/portfolio_state.json'),
+        'simulate_rebalancing': os.getenv('SIMULATE_REBALANCING', 'true').lower() == 'true',
+        'bypass_wednesday_check': os.getenv('BYPASS_WEDNESDAY_CHECK', 'false').lower() == 'true',  # For testing - also triggers rebalancing
     }
 
     # Log key settings
