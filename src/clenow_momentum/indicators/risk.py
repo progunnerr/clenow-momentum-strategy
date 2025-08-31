@@ -7,6 +7,7 @@ This module implements the risk management components of Andreas Clenow's moment
 - Portfolio construction with equal risk weighting
 """
 
+import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -59,12 +60,21 @@ def calculate_atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
             raise ValueError(f"Data must contain '{col}' column")
 
     # Calculate True Range
-    true_range = calculate_true_range(data['High'], data['Low'], data['Close'])
+    tr = calculate_true_range(data['High'], data['Low'], data['Close'])
 
-    # Calculate ATR using Wilder's smoothing
-    # Wilder's smoothing is an EMA with alpha=1/period
-    # In pandas, this is achieved with alpha=1/period or span=2*period-1
-    atr = true_range.ewm(alpha=1/period, adjust=False).mean()
+    # Initialize ATR using Wilder's method
+    # Start with simple average of first period TR values, then use smoothed formula
+    atr = tr.copy()
+    
+    # Seed with simple average of first period True Range values
+    first_atr = tr.iloc[:period].mean()
+    atr.iloc[:period] = np.nan
+    atr.iloc[period-1] = first_atr
+    
+    # Apply Wilder's smoothing formula for subsequent values
+    # ATR[i] = (ATR[i-1] * (period-1) + TR[i]) / period
+    for i in range(period, len(atr)):
+        atr.iloc[i] = (atr.iloc[i-1] * (period - 1) + tr.iloc[i]) / period
 
     return atr
 
@@ -182,9 +192,12 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
     max_position_value = account_value * max_position_pct
     max_shares = max_position_value / stock_price
 
+    # Determine limiting factor before rounding to avoid misidentification
+    limited_by_position = shares_based_on_risk > max_shares
+    
     # Use the smaller of the two (risk-based or position limit)
-    shares = min(shares_based_on_risk, max_shares)
-    shares = max(0, int(shares))  # Ensure positive integer
+    shares_float = min(shares_based_on_risk, max_shares)
+    shares = max(0, int(shares_float))  # Ensure positive integer
 
     # Calculate actual investment amount
     investment_amount = shares * stock_price
@@ -205,7 +218,7 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
         'target_risk': risk_amount,
         'actual_risk': actual_risk,
         'risk_utilization': actual_risk / risk_amount if risk_amount > 0 else 0,
-        'limited_by': 'position_limit' if shares == max_shares else 'risk_limit',
+        'limited_by': 'position_limit' if limited_by_position else 'risk_limit',
         'stop_loss_price': stop_loss_price,
         'stop_loss_distance': stop_loss_distance,
         'stop_loss_multiplier': stop_loss_multiplier
@@ -215,7 +228,7 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
 def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                    account_value: float = 1000000, risk_per_trade: float = 0.001,
                    atr_period: int = 14, allocation_method: str = "equal_risk",
-                   stop_loss_multiplier: float = 3.0) -> pd.DataFrame:
+                   stop_loss_multiplier: float = 3.0, max_position_pct: float = 0.05) -> pd.DataFrame:
     """
     Build complete portfolio with position sizing for all filtered stocks.
 
@@ -227,6 +240,7 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
         atr_period: ATR calculation period (default 14)
         allocation_method: "equal_risk" or "equal_dollar"
         stop_loss_multiplier: ATR multiplier for stop loss (default 3.0 = 3x ATR per Clenow)
+        max_position_pct: Maximum position size as percentage of account (default 0.05 = 5%)
 
     Returns:
         DataFrame with complete portfolio including position sizes
@@ -341,6 +355,7 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                     risk_per_trade=risk_per_trade,
                     stock_price=current_price,
                     atr=row['atr'],
+                    max_position_pct=max_position_pct,
                     stop_loss_multiplier=stop_loss_multiplier
                 )
 

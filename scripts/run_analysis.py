@@ -150,7 +150,8 @@ def main():
             risk_per_trade=config['risk_per_trade'],
             atr_period=config['atr_period'],
             allocation_method="equal_risk",
-            stop_loss_multiplier=config['stop_loss_multiplier']
+            stop_loss_multiplier=config['stop_loss_multiplier'],
+            max_position_pct=config['max_position_pct']
         )
 
         if not portfolio_df.empty:

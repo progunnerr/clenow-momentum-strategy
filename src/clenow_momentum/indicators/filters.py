@@ -195,12 +195,18 @@ def detect_gaps(data: pd.DataFrame, gap_threshold: float = 0.15) -> pd.DataFrame
                 # Check if any gap exceeds threshold
                 has_large_gap = max_gap > gap_threshold
 
+                # Determine gap direction safely to avoid KeyError
+                if max_gap_date is not None:
+                    direction = 'up' if recent_gaps.loc[max_gap_date] > 0 else 'down'
+                else:
+                    direction = 'none'
+
                 results.append({
                     'ticker': ticker,
                     'max_gap': max_gap,
                     'max_gap_date': max_gap_date,
                     'has_large_gap': has_large_gap,
-                    'gap_direction': 'up' if recent_gaps.loc[max_gap_date] > 0 else 'down' if max_gap_date else 'none'
+                    'gap_direction': direction
                 })
 
             except Exception as e:

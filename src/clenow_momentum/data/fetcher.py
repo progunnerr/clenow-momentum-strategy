@@ -71,7 +71,15 @@ def _get_major_sp500_tickers() -> list[str]:
         try:
             stock = yf.Ticker(ticker)
             info = stock.fast_info
-            if info and hasattr(info, 'last_price') and info.last_price:
+            # Handle both attribute-style and dict-style access
+            last_price = None
+            if info:
+                if hasattr(info, 'last_price'):
+                    last_price = info.last_price
+                elif isinstance(info, dict) and 'last_price' in info:
+                    last_price = info['last_price']
+            
+            if last_price and last_price > 0:
                 verified_tickers.append(ticker)
         except Exception as e:
             logger.debug(f"Could not verify ticker {ticker}: {e}")
