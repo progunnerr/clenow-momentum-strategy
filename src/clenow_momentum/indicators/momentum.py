@@ -78,55 +78,115 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     Calculate momentum scores for all stocks in the universe.
 
     Args:
-        data: DataFrame with stock price data (columns = tickers)
+        data: DataFrame with stock price data from yfinance with group_by="ticker"
         period: Number of days to look back
 
     Returns:
         DataFrame with momentum metrics for each stock
     """
-    logger.info(f"Calculating momentum scores for {len(data.columns)} stocks (period: {period} days)")
     results = []
     processed_count = 0
     skipped_count = 0
+    
+    # Handle yfinance group_by="ticker" structure
+    # From your screenshot: data structure is like data['AAPL'] -> DataFrame with ['Open', 'High', 'Low', 'Close', 'Volume']
+    if isinstance(data.columns, pd.MultiIndex):
+        # Get unique ticker symbols from the first level
+        tickers = data.columns.get_level_values(0).unique()
+        logger.info(f"Calculating momentum scores for {len(tickers)} stocks with group_by ticker structure (period: {period} days)")
+        
+        # Log basic data structure info
+        logger.debug(f"Processing {len(tickers)} tickers from MultiIndex DataFrame (shape: {data.shape})")
+        
+        for ticker in tickers:
+            try:
+                # Access the ticker's data - this should be a DataFrame with OHLCV columns
+                ticker_data = data[ticker]
+                
+                # Get the Close prices
+                if 'Close' in ticker_data.columns:
+                    prices = ticker_data['Close']
+                else:
+                    logger.debug(f"No Close column found for {ticker}, columns: {ticker_data.columns.tolist()}")
+                    skipped_count += 1
+                    continue
+                    
+            except (KeyError, AttributeError) as e:
+                logger.debug(f"Error accessing {ticker}: {e}")
+                skipped_count += 1
+                continue
+                
+            # Skip if not enough data
+            if len(prices.dropna()) < period:
+                logger.debug(f"Skipping {ticker}: insufficient data ({len(prices.dropna())} < {period})")
+                skipped_count += 1
+                continue
 
-    for ticker in data.columns:
-        if hasattr(data[ticker], "Close"):
-            # Multi-level column structure from yfinance
-            prices = data[ticker]["Close"]
-        else:
-            # Simple column structure
+            slope, r_squared = calculate_exponential_regression_slope(prices, period)
+            momentum_score = (
+                slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
+            )
+
+            # Calculate additional metrics
+            current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
+            period_return = (
+                ((current_price / prices.iloc[-period]) - 1) * 100
+                if len(prices) >= period and not pd.isna(prices.iloc[-period])
+                else np.nan
+            )
+
+            results.append(
+                {
+                    "ticker": ticker,
+                    "momentum_score": momentum_score,
+                    "annualized_slope": slope,
+                    "r_squared": r_squared,
+                    "current_price": current_price,
+                    "period_return_pct": period_return,
+                }
+            )
+            processed_count += 1
+                
+    else:
+        # Fallback: Simple column structure (single level)
+        # This handles cases where data might be pre-processed or single ticker
+        tickers = data.columns
+        logger.info(f"Calculating momentum scores for {len(tickers)} stocks with simple columns (period: {period} days)")
+        
+        for ticker in tickers:
+            # Simple column structure - assume it's already price data
             prices = data[ticker]
+            
+            # Skip if not enough data
+            if len(prices.dropna()) < period:
+                logger.debug(f"Skipping {ticker}: insufficient data ({len(prices.dropna())} < {period})")
+                skipped_count += 1
+                continue
 
-        # Skip if not enough data
-        if len(prices.dropna()) < period:
-            logger.debug(f"Skipping {ticker}: insufficient data ({len(prices.dropna())} < {period})")
-            skipped_count += 1
-            continue
+            slope, r_squared = calculate_exponential_regression_slope(prices, period)
+            momentum_score = (
+                slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
+            )
 
-        slope, r_squared = calculate_exponential_regression_slope(prices, period)
-        momentum_score = (
-            slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
-        )
+            # Calculate additional metrics
+            current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
+            period_return = (
+                ((current_price / prices.iloc[-period]) - 1) * 100
+                if len(prices) >= period and not pd.isna(prices.iloc[-period])
+                else np.nan
+            )
 
-        # Calculate additional metrics
-        current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
-        period_return = (
-            ((current_price / prices.iloc[-period]) - 1) * 100
-            if len(prices) >= period and not pd.isna(prices.iloc[-period])
-            else np.nan
-        )
-
-        results.append(
-            {
-                "ticker": ticker,
-                "momentum_score": momentum_score,
-                "annualized_slope": slope,
-                "r_squared": r_squared,
-                "current_price": current_price,
-                "period_return_pct": period_return,
-            }
-        )
-        processed_count += 1
+            results.append(
+                {
+                    "ticker": ticker,
+                    "momentum_score": momentum_score,
+                    "annualized_slope": slope,
+                    "r_squared": r_squared,
+                    "current_price": current_price,
+                    "period_return_pct": period_return,
+                }
+            )
+            processed_count += 1
 
     df = pd.DataFrame(results)
 
