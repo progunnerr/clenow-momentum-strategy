@@ -45,6 +45,7 @@ def load_config() -> dict:
         'market_regime_period': int(os.getenv('MARKET_REGIME_PERIOD', '200')),
         'gap_threshold': float(os.getenv('GAP_THRESHOLD', '0.15')),
         'atr_period': int(os.getenv('ATR_PERIOD', '14')),
+        'stop_loss_multiplier': float(os.getenv('STOP_LOSS_MULTIPLIER', '3.0')),  # Clenow uses 3x ATR
     }
 
     # Log key settings

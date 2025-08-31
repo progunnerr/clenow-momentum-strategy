@@ -84,6 +84,15 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     Returns:
         DataFrame with momentum metrics for each stock
     """
+    # Validate input data
+    if data is None or data.empty:
+        logger.error("Input data is None or empty")
+        return pd.DataFrame()
+    
+    if not isinstance(data, pd.DataFrame):
+        logger.error(f"Expected DataFrame, got {type(data)}")
+        return pd.DataFrame()
+    
     results = []
     processed_count = 0
     skipped_count = 0
@@ -126,10 +135,10 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
 
             # Calculate additional metrics
             current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
-            # Calculate return over the period (need to go back period+1 to get period days of returns)
+            # Calculate return over the period (go back 'period' days to get the starting price)
             period_return = (
-                ((current_price / prices.iloc[-(period+1)]) - 1) * 100
-                if len(prices) > period and not pd.isna(prices.iloc[-(period+1)])
+                ((current_price / prices.iloc[-period]) - 1) * 100
+                if len(prices) >= period and not pd.isna(prices.iloc[-period])
                 else np.nan
             )
 
@@ -165,10 +174,10 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
 
             # Calculate additional metrics
             current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
-            # Calculate return over the period (need to go back period+1 to get period days of returns)
+            # Calculate return over the period (go back 'period' days to get the starting price)
             period_return = (
-                ((current_price / prices.iloc[-(period+1)]) - 1) * 100
-                if len(prices) > period and not pd.isna(prices.iloc[-(period+1)])
+                ((current_price / prices.iloc[-period]) - 1) * 100
+                if len(prices) >= period and not pd.isna(prices.iloc[-period])
                 else np.nan
             )
 

@@ -38,6 +38,11 @@ def filter_above_ma(data: pd.DataFrame, ma_period: int = 100) -> pd.DataFrame:
     Returns:
         DataFrame containing tickers that pass the MA filter with their latest prices and MA values
     """
+    # Validate input
+    if data is None or data.empty:
+        logger.warning("Input data is None or empty for MA filter")
+        return pd.DataFrame()
+    
     results = []
     passed_count = 0
     failed_count = 0

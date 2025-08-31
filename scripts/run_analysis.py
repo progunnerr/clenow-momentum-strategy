@@ -133,13 +133,6 @@ def main():
         print("📊 Showing momentum rankings for informational purposes only")
         final_stocks = top_momentum_stocks
 
-    # Limit to max positions BEFORE portfolio construction for small accounts
-    if len(final_stocks) > config['max_positions']:
-        print(f"📉 Limiting to top {config['max_positions']} positions (account size optimization)")
-        # Keep the top momentum stocks (they're already sorted by momentum_score)
-        final_stocks = final_stocks.head(config['max_positions']).copy()
-        print(f"✅ Selected {len(final_stocks)} stocks for portfolio construction")
-
     print()
 
     # Step 7: Portfolio Construction (if trading allowed)
@@ -154,14 +147,15 @@ def main():
             account_value=config['account_value'],
             risk_per_trade=config['risk_per_trade'],
             atr_period=config['atr_period'],
-            allocation_method="equal_risk"
+            allocation_method="equal_risk",
+            stop_loss_multiplier=config['stop_loss_multiplier']
         )
 
         if not portfolio_df.empty:
-            # Apply final risk limits (positions already limited above)
+            # Apply risk limits - positions and minimum value
             portfolio_df = apply_risk_limits(
                 portfolio_df=portfolio_df,
-                max_positions=len(portfolio_df) + 5,  # Allow all positions through
+                max_positions=config['max_positions'],
                 min_position_value=config['min_position_value']
             )
 

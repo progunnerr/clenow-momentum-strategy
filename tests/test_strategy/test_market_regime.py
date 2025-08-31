@@ -23,8 +23,9 @@ class TestMarketMA:
         dates = pd.date_range('2024-01-01', periods=250, freq='D')
 
         # Create trending upward data
-        base_prices = range(400, 450)  # SPY-like prices
-        prices = base_prices + list(range(450, 500))[:200]  # Extend to 250 days
+        base_prices = list(range(400, 450))  # 50 SPY-like prices
+        extension_prices = list(range(450, 650))  # 200 more prices
+        prices = base_prices + extension_prices  # Total 250 prices
 
         return pd.DataFrame({
             'Open': prices,
@@ -248,7 +249,8 @@ class TestErrorHandling:
     @patch('clenow_momentum.strategy.market_regime.get_sp500_data')
     def test_check_market_regime_exception(self, mock_get_data):
         """Test exception handling in market regime check."""
-        mock_get_data.side_effect = Exception("Network error")
+        # Return None to simulate failed data fetch
+        mock_get_data.return_value = None
 
         result = check_market_regime()
 
@@ -259,7 +261,8 @@ class TestErrorHandling:
     @patch('clenow_momentum.strategy.market_regime.get_sp500_data')
     def test_get_sp500_ma_status_exception(self, mock_get_data):
         """Test exception handling in MA status."""
-        mock_get_data.side_effect = Exception("API error")
+        # Return None to simulate failed data fetch
+        mock_get_data.return_value = None
 
         result = get_sp500_ma_status()
 

@@ -61,9 +61,10 @@ def calculate_atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
     # Calculate True Range
     true_range = calculate_true_range(data['High'], data['Low'], data['Close'])
 
-    # Calculate ATR using Wilder's smoothing (equivalent to EMA with alpha=1/period)
-    # Wilder's smoothing uses com=period-1 in pandas
-    atr = true_range.ewm(com=period-1, adjust=False).mean()
+    # Calculate ATR using Wilder's smoothing
+    # Wilder's smoothing is an EMA with alpha=1/period
+    # In pandas, this is achieved with alpha=1/period or span=2*period-1
+    atr = true_range.ewm(alpha=1/period, adjust=False).mean()
 
     return atr
 
@@ -141,7 +142,7 @@ def calculate_atr_for_universe(stock_data: pd.DataFrame, period: int = 14) -> pd
 def calculate_position_size(account_value: float, risk_per_trade: float,
                           stock_price: float, atr: float,
                           max_position_pct: float = 0.05,
-                          stop_loss_multiplier: float = 2.0) -> dict:
+                          stop_loss_multiplier: float = 3.0) -> dict:
     """
     Calculate position size based on Clenow's risk management rules.
 
@@ -156,7 +157,7 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
         stock_price: Current stock price
         atr: Stock's Average True Range
         max_position_pct: Maximum position as percentage of account (default 0.05 = 5%)
-        stop_loss_multiplier: ATR multiplier for stop loss (default 2.0 = 2x ATR)
+        stop_loss_multiplier: ATR multiplier for stop loss (default 3.0 = 3x ATR per Clenow)
 
     Returns:
         Dictionary with position sizing details
@@ -170,7 +171,7 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
     # Calculate risk amount in dollars
     risk_amount = account_value * risk_per_trade
 
-    # Calculate stop loss distance (typically 2-3x ATR per Clenow)
+    # Calculate stop loss distance (typically 3x ATR per Clenow)
     stop_loss_distance = atr * stop_loss_multiplier
 
     # Calculate position size based on ATR and stop loss
@@ -214,7 +215,7 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
 def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                    account_value: float = 1000000, risk_per_trade: float = 0.001,
                    atr_period: int = 14, allocation_method: str = "equal_risk",
-                   stop_loss_multiplier: float = 2.0) -> pd.DataFrame:
+                   stop_loss_multiplier: float = 3.0) -> pd.DataFrame:
     """
     Build complete portfolio with position sizing for all filtered stocks.
 
@@ -225,7 +226,7 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
         risk_per_trade: Risk per trade as percentage (default 0.1%)
         atr_period: ATR calculation period (default 14)
         allocation_method: "equal_risk" or "equal_dollar"
-        stop_loss_multiplier: ATR multiplier for stop loss (default 2.0 = 2x ATR)
+        stop_loss_multiplier: ATR multiplier for stop loss (default 3.0 = 3x ATR per Clenow)
 
     Returns:
         DataFrame with complete portfolio including position sizes

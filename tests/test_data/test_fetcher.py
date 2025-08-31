@@ -27,23 +27,31 @@ class TestGetSP500Tickers:
 
         # Assertions
         assert tickers == ["AAPL", "MSFT", "GOOGL", "AMZN"]
-        mock_requests.assert_called_once_with(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", timeout=10
-        )
+        # Check that the request was made with headers
+        mock_requests.assert_called_once()
+        call_args = mock_requests.call_args
+        assert call_args[0][0] == "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        assert "headers" in call_args[1]
+        assert call_args[1]["timeout"] == 10
 
+    @patch("src.clenow_momentum.data.fetcher.get_sp500_tickers_yfinance")
     @patch("src.clenow_momentum.data.fetcher.requests.get")
-    def test_request_exception(self, mock_requests):
-        """Test handling of request exceptions."""
-        mock_requests.side_effect = Exception("Network error")
+    def test_request_exception(self, mock_requests, mock_yfinance):
+        """Test handling of request exceptions - should fallback to yfinance."""
+        import requests
+        mock_requests.side_effect = requests.RequestException("Network error")
+        mock_yfinance.return_value = ["AAPL", "MSFT"]  # Fallback returns some tickers
 
         tickers = get_sp500_tickers()
 
-        assert tickers == []
+        assert tickers == ["AAPL", "MSFT"]  # Should get fallback results
+        mock_yfinance.assert_called_once()
 
+    @patch("src.clenow_momentum.data.fetcher.get_sp500_tickers_yfinance")
     @patch("src.clenow_momentum.data.fetcher.requests.get")
     @patch("src.clenow_momentum.data.fetcher.BeautifulSoup")
-    def test_missing_table(self, mock_soup, mock_requests):
-        """Test handling when constituents table is not found."""
+    def test_missing_table(self, mock_soup, mock_requests, mock_yfinance):
+        """Test handling when constituents table is not found - should fallback."""
         # Mock successful HTTP response
         mock_response = MagicMock()
         mock_response.raise_for_status.return_value = None
@@ -54,15 +62,20 @@ class TestGetSP500Tickers:
         mock_soup_instance = MagicMock()
         mock_soup_instance.find.return_value = None
         mock_soup.return_value = mock_soup_instance
+        
+        # Mock yfinance fallback
+        mock_yfinance.return_value = ["AAPL", "MSFT"]
 
         tickers = get_sp500_tickers()
 
-        assert tickers == []
+        assert tickers == ["AAPL", "MSFT"]  # Should get fallback results
+        mock_yfinance.assert_called_once()
 
+    @patch("src.clenow_momentum.data.fetcher.get_sp500_tickers_yfinance")
     @patch("src.clenow_momentum.data.fetcher.requests.get")
     @patch("src.clenow_momentum.data.fetcher.pd.read_html")
-    def test_missing_symbol_column(self, mock_read_html, mock_requests):
-        """Test handling when Symbol column is missing."""
+    def test_missing_symbol_column(self, mock_read_html, mock_requests, mock_yfinance):
+        """Test handling when Symbol column is missing - should fallback."""
         # Mock successful HTTP response
         mock_response = MagicMock()
         mock_response.raise_for_status.return_value = None
@@ -72,10 +85,14 @@ class TestGetSP500Tickers:
         # Mock pandas read_html to return data without Symbol column
         test_df = pd.DataFrame({"Ticker": ["AAPL", "MSFT"]})  # Wrong column name
         mock_read_html.return_value = [test_df]
+        
+        # Mock yfinance fallback
+        mock_yfinance.return_value = ["AAPL", "MSFT"]
 
         tickers = get_sp500_tickers()
 
-        assert tickers == []
+        assert tickers == ["AAPL", "MSFT"]  # Should get fallback results
+        mock_yfinance.assert_called_once()
 
 
 class TestGetStockData:
