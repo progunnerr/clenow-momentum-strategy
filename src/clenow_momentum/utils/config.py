@@ -126,7 +126,7 @@ def validate_config(config: dict) -> list:
         warnings.append("⚠️  Risk per trade < 0.05% is very conservative")
 
     # Position count checks
-    risk_dollars = config['account_value'] * config['risk_per_trade']
+    config['account_value'] * config['risk_per_trade']
     if config['max_positions'] > config['account_value'] / config['min_position_value']:
         warnings.append("⚠️  Too many positions for account size given minimum position value")
 

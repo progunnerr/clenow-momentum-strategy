@@ -224,6 +224,129 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
     }
 
 
+def calculate_equal_dollar_position(row, account_value, num_stocks, risk_per_trade, stop_loss_multiplier):
+    """
+    Calculate position size for equal dollar allocation.
+
+    Args:
+        row: Stock data row
+        account_value: Total account value
+        num_stocks: Number of stocks in portfolio
+        risk_per_trade: Risk per trade as percentage
+        stop_loss_multiplier: ATR multiplier for stop loss
+
+    Returns:
+        Position dictionary or None if invalid
+    """
+    ticker = row['ticker']
+    position_value = account_value / num_stocks
+
+    # Get current price
+    current_price = row.get('latest_price', row.get('current_price', 0))
+
+    if pd.isna(current_price) or current_price <= 0:
+        logger.warning(f"No valid price for {ticker}, skipping")
+        return None
+
+    # Calculate shares for equal dollar amount
+    shares = int(position_value / current_price)
+    if shares == 0:
+        logger.warning(f"Position too small for {ticker} at ${current_price:.2f}, skipping")
+        return None
+
+    investment = shares * current_price
+    position_pct = investment / account_value
+
+    # Calculate stop loss and risk
+    stop_loss_distance = row['atr'] * stop_loss_multiplier
+    stop_loss_price = current_price - stop_loss_distance
+    actual_risk = shares * stop_loss_distance
+
+    result = {
+        'ticker': ticker,
+        'momentum_score': row.get('momentum_score', 0),
+        'current_price': current_price,
+        'atr': row['atr'],
+        'shares': shares,
+        'investment': investment,
+        'position_pct': position_pct,
+        'target_risk': position_value * risk_per_trade,
+        'actual_risk': actual_risk,
+        'risk_utilization': 1.0,
+        'limited_by': 'equal_dollar',
+        'stop_loss_price': stop_loss_price,
+        'stop_loss_distance': stop_loss_distance,
+        'stop_loss_multiplier': stop_loss_multiplier
+    }
+
+    # Add filter-specific data if available
+    if 'price_vs_ma' in row:
+        result['price_vs_ma'] = row['price_vs_ma']
+
+    return result
+
+
+def calculate_risk_based_position(row, account_value, risk_per_trade, max_position_pct, stop_loss_multiplier):
+    """
+    Calculate position size for risk-based allocation.
+
+    Args:
+        row: Stock data row
+        account_value: Total account value
+        risk_per_trade: Risk per trade as percentage
+        max_position_pct: Maximum position size as percentage
+        stop_loss_multiplier: ATR multiplier for stop loss
+
+    Returns:
+        Position dictionary or None if invalid
+    """
+    ticker = row['ticker']
+    current_price = row.get('latest_price', row.get('current_price', 0))
+
+    if pd.isna(current_price) or current_price <= 0:
+        logger.warning(f"No valid price for {ticker}, skipping")
+        return None
+
+    try:
+        # Calculate position size
+        position = calculate_position_size(
+            account_value=account_value,
+            risk_per_trade=risk_per_trade,
+            stock_price=current_price,
+            atr=row['atr'],
+            max_position_pct=max_position_pct,
+            stop_loss_multiplier=stop_loss_multiplier
+        )
+
+        # Add to results
+        result = {
+            'ticker': ticker,
+            'momentum_score': row.get('momentum_score', 0),
+            'current_price': current_price,
+            'atr': row['atr'],
+            'shares': position['shares'],
+            'investment': position['investment_amount'],
+            'position_pct': position['position_pct'],
+            'target_risk': position['target_risk'],
+            'actual_risk': position['actual_risk'],
+            'risk_utilization': position['risk_utilization'],
+            'limited_by': position['limited_by'],
+            'stop_loss_price': position['stop_loss_price'],
+            'stop_loss_distance': position['stop_loss_distance'],
+            'stop_loss_multiplier': position['stop_loss_multiplier']
+        }
+
+        # Add filter-specific data if available
+        if 'price_vs_ma' in row:
+            result['price_vs_ma'] = row['price_vs_ma']
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"Error calculating position for {ticker}: {e}")
+        return None
+
+
 def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
                    account_value: float = 1000000, risk_per_trade: float = 0.001,
                    atr_period: int = 14, allocation_method: str = "equal_risk",
@@ -278,8 +401,6 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
 
     # Calculate position sizes based on allocation method
     portfolio_results = []
-    total_investment = 0
-    total_risk = 0
 
     if allocation_method == "equal_dollar":
         # Equal dollar allocation
@@ -287,106 +408,19 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
         logger.info(f"Target position size: ${position_value:,.0f}")
 
         for _, row in portfolio_df.iterrows():
-            ticker = row['ticker']
-
-            # Get current price (prefer latest_price from filters, fall back to current_price)
-            current_price = row.get('latest_price', row.get('current_price', 0))
-
-            if pd.isna(current_price) or current_price <= 0:
-                logger.warning(f"No valid price for {ticker}, skipping")
-                continue
-
-            # Calculate shares for equal dollar amount
-            shares = int(position_value / current_price)
-            if shares == 0:
-                logger.warning(f"Position too small for {ticker} at ${current_price:.2f}, skipping")
-                continue
-
-            investment = shares * current_price
-            position_pct = investment / account_value
-
-            # Calculate stop loss and risk
-            stop_loss_distance = row['atr'] * stop_loss_multiplier
-            stop_loss_price = current_price - stop_loss_distance
-            actual_risk = shares * stop_loss_distance
-
-            result = {
-                'ticker': ticker,
-                'momentum_score': row.get('momentum_score', 0),
-                'current_price': current_price,
-                'atr': row['atr'],
-                'shares': shares,
-                'investment': investment,
-                'position_pct': position_pct,
-                'target_risk': position_value * risk_per_trade,  # What risk would be
-                'actual_risk': actual_risk,  # Actual stop-loss based risk
-                'risk_utilization': 1.0,  # Always 100% for equal dollar
-                'limited_by': 'equal_dollar',
-                'stop_loss_price': stop_loss_price,
-                'stop_loss_distance': stop_loss_distance,
-                'stop_loss_multiplier': stop_loss_multiplier
-            }
-
-            # Add filter-specific data if available
-            if 'price_vs_ma' in row:
-                result['price_vs_ma'] = row['price_vs_ma']
-
-            portfolio_results.append(result)
-            total_investment += investment
-            total_risk += actual_risk
-
+            result = calculate_equal_dollar_position(
+                row, account_value, len(portfolio_df), risk_per_trade, stop_loss_multiplier
+            )
+            if result:
+                portfolio_results.append(result)
     else:
         # Risk-based allocation (original method)
         for _, row in portfolio_df.iterrows():
-            ticker = row['ticker']
-
-            # Get current price (prefer latest_price from filters, fall back to current_price)
-            current_price = row.get('latest_price', row.get('current_price', 0))
-
-            if pd.isna(current_price) or current_price <= 0:
-                logger.warning(f"No valid price for {ticker}, skipping")
-                continue
-
-            try:
-                # Calculate position size
-                position = calculate_position_size(
-                    account_value=account_value,
-                    risk_per_trade=risk_per_trade,
-                    stock_price=current_price,
-                    atr=row['atr'],
-                    max_position_pct=max_position_pct,
-                    stop_loss_multiplier=stop_loss_multiplier
-                )
-
-                # Add to results
-                result = {
-                    'ticker': ticker,
-                    'momentum_score': row.get('momentum_score', 0),
-                    'current_price': current_price,
-                    'atr': row['atr'],
-                    'shares': position['shares'],
-                    'investment': position['investment_amount'],
-                    'position_pct': position['position_pct'],
-                    'target_risk': position['target_risk'],
-                    'actual_risk': position['actual_risk'],
-                    'risk_utilization': position['risk_utilization'],
-                    'limited_by': position['limited_by'],
-                    'stop_loss_price': position['stop_loss_price'],
-                    'stop_loss_distance': position['stop_loss_distance'],
-                    'stop_loss_multiplier': position['stop_loss_multiplier']
-                }
-
-                # Add filter-specific data if available
-                if 'price_vs_ma' in row:
-                    result['price_vs_ma'] = row['price_vs_ma']
-
+            result = calculate_risk_based_position(
+                row, account_value, risk_per_trade, max_position_pct, stop_loss_multiplier
+            )
+            if result:
                 portfolio_results.append(result)
-                total_investment += position['investment_amount']
-                total_risk += position['actual_risk']
-
-            except Exception as e:
-                logger.warning(f"Error calculating position for {ticker}: {e}")
-                continue
 
     # Create portfolio DataFrame
     portfolio_df = pd.DataFrame(portfolio_results)
@@ -403,6 +437,8 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
 
     # Calculate portfolio statistics
     total_positions = len(portfolio_df)
+    total_investment = portfolio_df['investment'].sum()
+    total_risk = portfolio_df['actual_risk'].sum()
     cash_remaining = account_value - total_investment
     capital_utilization = total_investment / account_value
     avg_position_size = total_investment / total_positions if total_positions > 0 else 0

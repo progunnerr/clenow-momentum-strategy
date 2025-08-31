@@ -144,11 +144,11 @@ class Portfolio:
 def save_portfolio_state(portfolio: Portfolio, filepath: Path | None = None) -> Path:
     """
     Save portfolio state to JSON file.
-    
+
     Args:
         portfolio: Portfolio to save
         filepath: Path to save file (defaults to data/portfolio_state.json)
-        
+
     Returns:
         Path to saved file
     """
@@ -185,10 +185,10 @@ def save_portfolio_state(portfolio: Portfolio, filepath: Path | None = None) -> 
 def load_portfolio_state(filepath: Path | None = None) -> Portfolio:
     """
     Load portfolio state from JSON file.
-    
+
     Args:
         filepath: Path to state file (defaults to data/portfolio_state.json)
-        
+
     Returns:
         Loaded portfolio or empty portfolio if file doesn't exist
     """
@@ -237,13 +237,13 @@ def calculate_target_weights(
 ) -> pd.DataFrame:
     """
     Calculate target portfolio weights for momentum stocks.
-    
+
     Equal-weight allocation among selected stocks.
-    
+
     Args:
         momentum_stocks: DataFrame with momentum stocks
         max_positions: Maximum number of positions
-        
+
     Returns:
         DataFrame with target weights
     """
@@ -274,20 +274,20 @@ def generate_rebalancing_orders(
 ) -> list[RebalancingOrder]:
     """
     Generate orders to rebalance from current to target portfolio.
-    
+
     Args:
         current_portfolio: Current portfolio state
         target_portfolio: Target portfolio DataFrame with positions and sizes
         stock_data: Current stock data with prices
         account_value: Total account value for position sizing
         cash_buffer: Cash buffer to maintain (default 2%)
-        
+
     Returns:
         List of rebalancing orders (sells first, then buys)
     """
     orders = []
     available_cash = current_portfolio.cash
-    investable_capital = account_value * (1 - cash_buffer)
+    account_value * (1 - cash_buffer)
 
     current_tickers = set(current_portfolio.positions.keys())
     target_tickers = set(target_portfolio['ticker'].values) if not target_portfolio.empty else set()
@@ -414,12 +414,12 @@ def create_rebalancing_summary(
 ) -> dict:
     """
     Create a summary of the rebalancing operation.
-    
+
     Args:
         current_portfolio: Current portfolio state
         orders: List of rebalancing orders
         target_portfolio: Target portfolio configuration
-        
+
     Returns:
         Dictionary with rebalancing summary
     """
@@ -468,14 +468,14 @@ def simulate_rebalancing_execution(
 ) -> Portfolio:
     """
     Simulate the execution of rebalancing orders.
-    
+
     This creates a new portfolio state after applying all orders.
-    
+
     Args:
         portfolio: Current portfolio
         orders: Rebalancing orders to execute
         stock_data: Current stock data
-        
+
     Returns:
         New portfolio state after rebalancing
     """
@@ -486,7 +486,7 @@ def simulate_rebalancing_execution(
     )
 
     # Copy existing positions
-    for ticker, pos in portfolio.positions.items():
+    for _ticker, pos in portfolio.positions.items():
         new_portfolio.add_position(pos)
 
     # Execute orders

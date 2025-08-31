@@ -52,9 +52,8 @@ def calculate_market_ma(spy_data: pd.DataFrame, period: int = 200) -> pd.Series:
         raise ValueError("SPY data must contain 'Close' column")
 
     close_prices = spy_data['Close'].dropna()
-    ma = close_prices.rolling(window=period, min_periods=period).mean()
+    return close_prices.rolling(window=period, min_periods=period).mean()
 
-    return ma
 
 
 def check_market_regime(period: int = 200) -> dict:
@@ -201,7 +200,7 @@ def get_sp500_ma_status(period: int = 200) -> dict:
             else:
                 break
 
-        result = {
+        return {
             'current_price': round(current_price, 2),
             'ma_value': round(current_ma, 2),
             'price_vs_ma_pct': round((price_vs_ma_ratio - 1) * 100, 2),
@@ -215,7 +214,6 @@ def get_sp500_ma_status(period: int = 200) -> dict:
             'ma_period': period
         }
 
-        return result
 
     except Exception as e:
         logger.error(f"Error getting S&P 500 MA status: {e}")

@@ -14,10 +14,10 @@ from loguru import logger
 def is_wednesday(date: datetime) -> bool:
     """
     Check if a given date is a Wednesday.
-    
+
     Args:
         date: Date to check
-        
+
     Returns:
         True if Wednesday (weekday == 2), False otherwise
     """
@@ -27,37 +27,33 @@ def is_wednesday(date: datetime) -> bool:
 def is_market_open(date: datetime) -> bool:
     """
     Check if US stock market is open on a given date.
-    
+
     Simplified implementation - checks for weekdays only.
     A production system would check for market holidays.
-    
+
     Args:
         date: Date to check
-        
+
     Returns:
         True if market is likely open, False otherwise
     """
     # Basic check: market is open on weekdays
-    if date.weekday() >= 5:  # Saturday = 5, Sunday = 6
-        return False
-
     # TODO: Add holiday calendar check (New Year's, Christmas, etc.)
     # For now, we'll assume all weekdays are trading days
     # In production, use pandas_market_calendars or similar
-
-    return True
+    return date.weekday() < 5  # Monday = 0, Friday = 4
 
 
 def is_trading_day(date: datetime | None = None, bypass_wednesday: bool = False) -> bool:
     """
     Check if a given date is a valid trading day (Wednesday with market open).
-    
+
     According to Clenow's strategy, trades are only executed on Wednesdays.
-    
+
     Args:
         date: Date to check (defaults to today UTC)
         bypass_wednesday: If True, bypass Wednesday requirement (for testing)
-        
+
     Returns:
         True if valid trading day, False otherwise
     """
@@ -67,12 +63,12 @@ def is_trading_day(date: datetime | None = None, bypass_wednesday: bool = False)
     # Check if market is open
     if not is_market_open(date):
         return False
-    
+
     # Check Wednesday requirement (unless bypassed)
     if bypass_wednesday:
         logger.debug(f"{date.strftime('%Y-%m-%d')} - Wednesday check bypassed for testing")
         return True
-    
+
     # Must be Wednesday
     is_valid = is_wednesday(date)
 
@@ -85,10 +81,10 @@ def is_trading_day(date: datetime | None = None, bypass_wednesday: bool = False)
 def get_next_trading_day(from_date: datetime | None = None) -> datetime:
     """
     Get the next valid trading day (Wednesday with market open).
-    
+
     Args:
         from_date: Start searching from this date (defaults to today)
-        
+
     Returns:
         Next Wednesday when market is open
     """
@@ -112,10 +108,10 @@ def get_next_trading_day(from_date: datetime | None = None) -> datetime:
 def get_rebalancing_months() -> list[int]:
     """
     Get the months when rebalancing should occur.
-    
+
     Following bi-monthly schedule on odd months:
     January (1), March (3), May (5), July (7), September (9), November (11)
-    
+
     Returns:
         List of month numbers for rebalancing
     """
@@ -125,10 +121,10 @@ def get_rebalancing_months() -> list[int]:
 def is_rebalancing_month(date: datetime) -> bool:
     """
     Check if the given date falls in a rebalancing month.
-    
+
     Args:
         date: Date to check
-        
+
     Returns:
         True if in a rebalancing month, False otherwise
     """
@@ -138,11 +134,11 @@ def is_rebalancing_month(date: datetime) -> bool:
 def get_first_wednesday_of_month(year: int, month: int) -> datetime:
     """
     Get the first Wednesday of a given month.
-    
+
     Args:
         year: Year
         month: Month (1-12)
-        
+
     Returns:
         First Wednesday of the month as datetime
     """
@@ -154,21 +150,20 @@ def get_first_wednesday_of_month(year: int, month: int) -> datetime:
     if days_until_wednesday == 0 and first_day.weekday() != 2:
         days_until_wednesday = 7
 
-    first_wednesday = first_day + timedelta(days=days_until_wednesday)
-    return first_wednesday
+    return first_day + timedelta(days=days_until_wednesday)
 
 
 def is_rebalancing_day(date: datetime | None = None, bypass_wednesday: bool = False) -> bool:
     """
     Check if a given date is a rebalancing day.
-    
+
     Rebalancing occurs on the first Wednesday of odd months
     (January, March, May, July, September, November).
-    
+
     Args:
         date: Date to check (defaults to today)
         bypass_wednesday: If True, bypass Wednesday requirement and treat as rebalancing day (for testing)
-        
+
     Returns:
         True if rebalancing day, False otherwise
     """
@@ -201,10 +196,10 @@ def is_rebalancing_day(date: datetime | None = None, bypass_wednesday: bool = Fa
 def get_next_rebalancing_date(from_date: datetime | None = None) -> datetime:
     """
     Get the next rebalancing date.
-    
+
     Args:
         from_date: Start searching from this date (defaults to today)
-        
+
     Returns:
         Next rebalancing date (first Wednesday of next odd month)
     """
@@ -242,12 +237,12 @@ def get_rebalancing_schedule(
 ) -> pd.DataFrame:
     """
     Generate a rebalancing schedule for the specified period.
-    
+
     Args:
         start_date: Schedule start date (defaults to today)
         end_date: Schedule end date (if None, use num_periods)
         num_periods: Number of rebalancing periods to generate (if end_date is None)
-        
+
     Returns:
         DataFrame with rebalancing dates and details
     """
@@ -295,10 +290,10 @@ def get_rebalancing_schedule(
 def get_trading_calendar_summary(bypass_wednesday: bool = False) -> dict:
     """
     Get a summary of the current trading calendar status.
-    
+
     Args:
         bypass_wednesday: If True, bypass Wednesday requirement (for testing)
-    
+
     Returns:
         Dictionary with trading calendar information
     """
@@ -332,11 +327,11 @@ def get_trading_calendar_summary(bypass_wednesday: bool = False) -> dict:
 def should_execute_trades(date: datetime | None = None, bypass_wednesday: bool = False) -> tuple[bool, str]:
     """
     Determine if trades should be executed on the given date.
-    
+
     Args:
         date: Date to check (defaults to today)
         bypass_wednesday: If True, bypass Wednesday requirement (for testing)
-        
+
     Returns:
         Tuple of (should_execute, reason_message)
     """
@@ -347,7 +342,7 @@ def should_execute_trades(date: datetime | None = None, bypass_wednesday: bool =
     if not is_trading_day(date, bypass_wednesday):
         if bypass_wednesday:
             return False, "Market is closed"
-        elif not is_wednesday(date):
+        if not is_wednesday(date):
             return False, f"Not a Wednesday (today is {date.strftime('%A')})"
         return False, "Wednesday but market is closed"
 

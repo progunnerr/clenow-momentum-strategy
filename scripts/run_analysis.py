@@ -38,18 +38,8 @@ from clenow_momentum.strategy.trading_schedule import (
 from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config
 
 
-def main():
-    """Main analysis function."""
-    print("=" * 60)
-    print("CLENOW MOMENTUM STRATEGY ANALYSIS")
-    print("=" * 60)
-    print(f"Analysis Date: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    print()
-
-    # Load configuration
-    config = load_config()
-
-    # Step 0: Check Trading Schedule
+def print_trading_schedule_status(config):
+    """Print trading schedule status."""
     print("TRADING SCHEDULE STATUS")
     print("-" * 30)
 
@@ -70,7 +60,11 @@ def main():
     print(f"🔄 Next Rebalancing: {calendar_summary['next_rebalancing_date']} (in {calendar_summary['days_until_next_rebalancing']} days)")
     print()
 
-    # Show position sizing guidance
+    return calendar_summary, can_trade, trade_reason
+
+
+def print_account_sizing(config):
+    """Print account and position sizing information."""
     sizing_guide = get_position_sizing_guide(config['account_value'])
     print("ACCOUNT & POSITION SIZING")
     print("-" * 30)
@@ -87,30 +81,19 @@ def main():
             print(f"  {warning}")
     print()
 
-    # Step 1: Get S&P 500 tickers
-    print("Step 1: Fetching S&P 500 tickers...")
-    tickers = get_sp500_tickers()
 
-    if not tickers:
-        print("❌ Could not retrieve tickers. Exiting.")
-        return 1
-
-    print(f"✅ Successfully fetched {len(tickers)} tickers")
-    print("Sample tickers:", tickers[:10])
-    print()
-
-    # Step 2: Get stock data (last 6 months for 90-day momentum calculation)
+def fetch_and_process_data(tickers, config):
+    """Fetch stock data and calculate momentum scores."""
+    # Get stock data
     print("Step 2: Fetching stock data (6 months)...")
     print("⏳ This may take a moment...")
-
-    # Use all S&P 500 tickers
     print(f"📈 Processing all {len(tickers)} S&P 500 stocks")
 
     stock_data = get_stock_data(tickers, period="6mo")
 
     if stock_data is None:
         print("❌ Could not retrieve stock data. Exiting.")
-        return 1
+        return None, None
 
     print("✅ Stock data retrieved successfully")
     print(f"Data shape: {stock_data.shape}")
@@ -119,7 +102,7 @@ def main():
     )
     print()
 
-    # Step 3: Calculate momentum scores
+    # Calculate momentum scores
     print(f"Step 3: Calculating momentum scores ({config['momentum_period']}-day period)...")
     momentum_df = calculate_momentum_for_universe(stock_data, period=config['momentum_period'])
 
@@ -127,21 +110,13 @@ def main():
     print(f"✅ Calculated momentum for {len(valid_scores)} stocks")
     print()
 
-    # Step 4: Check market regime
-    print(f"Step 4: Checking market regime (SPX vs {config['market_regime_period']}-day MA)...")
-    market_regime = check_market_regime(period=config['market_regime_period'])
-    trading_allowed, regime_reason = should_trade_momentum(market_regime)
+    return stock_data, momentum_df
 
-    print(f"📊 Market Regime: {market_regime.get('regime', 'unknown').upper()}")
-    print(f"📈 SPX: ${market_regime.get('current_price', 'N/A')} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A')}")
-    print(f"🎯 Trading Status: {'✅ ALLOWED' if trading_allowed else '⛔ SUSPENDED'}")
-    print(f"📝 Reason: {regime_reason}")
-    print()
 
-    # Step 5: Apply trading filters to find eligible stocks
-    print("Step 5: Applying trading filters...")
-
+def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
+    """Apply filters and select stocks for portfolio."""
     stocks_for_portfolio = pd.DataFrame()
+
     if trading_allowed:
         # Filter the entire universe of stocks with valid momentum scores
         stocks_to_filter = momentum_df.dropna(subset=['momentum_score'])
@@ -159,13 +134,159 @@ def main():
         stocks_for_portfolio = filtered_stocks.head(config['max_positions'])
         print(f"📈 Selecting top {len(stocks_for_portfolio)} momentum stocks for portfolio (max_positions: {config['max_positions']}).")
 
-        final_stocks = filtered_stocks # Keep all filtered stocks for display
+        final_stocks = filtered_stocks  # Keep all filtered stocks for display
     else:
         print("⛔ Market regime not favorable - skipping individual stock filters")
         print(f"📊 Showing top {config['top_momentum_pct']:.0%} momentum rankings for informational purposes only...")
         # For informational purposes, show the top 20% unfiltered
         final_stocks = get_top_momentum_stocks(momentum_df, top_pct=config['top_momentum_pct'])
 
+    return stocks_for_portfolio, final_stocks
+
+
+def display_portfolio_table(portfolio_df, config):
+    """Display portfolio table with position sizing."""
+    print("🎯 PORTFOLIO WITH POSITION SIZING")
+    print("=" * 60)
+
+    # Prepare portfolio table data
+    table_data = []
+    for _, row in portfolio_df.iterrows():
+        table_data.append([
+            int(row["portfolio_rank"]),
+            row["ticker"],
+            f"{row['momentum_score']:.3f}",
+            f"${row['current_price']:.2f}",
+            f"${row['atr']:.2f}",
+            int(row['shares']),
+            f"${row['investment']:,.0f}",
+            f"{row['position_pct']:.1%}",
+            f"${row['actual_risk']:,.0f}"
+        ])
+
+    headers = ["Rank", "Ticker", "Momentum", "Price", "ATR", "Shares", "Investment", "% Port", "Risk $"]
+    print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    print()
+
+    # Portfolio summary
+    total_investment = portfolio_df['investment'].sum()
+    total_positions = len(portfolio_df)
+    avg_position = total_investment / total_positions
+    total_risk = portfolio_df['actual_risk'].sum()
+
+    print("PORTFOLIO SUMMARY")
+    print("-" * 50)
+    print(f"💰 Account Value: ${config['account_value']:,.0f}")
+    print(f"📊 Total Positions: {total_positions}")
+    print(f"💼 Total Investment: ${total_investment:,.0f}")
+    print(f"💵 Cash Remaining: ${config['account_value'] - total_investment:,.0f}")
+    print(f"📈 Capital Utilization: {total_investment/config['account_value']:.1%}")
+    print(f"⚖️  Average Position: ${avg_position:,.0f}")
+    print(f"⚠️  Total Portfolio Risk: ${total_risk:,.0f}")
+    print(f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['account_value'] * config['risk_per_trade']:,.0f})")
+
+
+def display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime):
+    """Display filtered stocks table without portfolio."""
+    table_data = []
+    for i, (_, row) in enumerate(final_stocks.iterrows()):
+        # Check if we have filter data (MA info)
+        if 'latest_price' in row and not pd.isna(row['latest_price']):
+            price_val = row['latest_price']
+            ma_info = f" (vs MA: {row.get('price_vs_ma', 0):+.1%})" if 'price_vs_ma' in row else ""
+        else:
+            price_val = row.get('current_price', 0)
+            ma_info = ""
+
+        table_data.append([
+            i + 1,  # Re-rank after filtering
+            row["ticker"],
+            f"{row['momentum_score']:.3f}",
+            f"{row['annualized_slope']:.3f}",
+            f"{row['r_squared']:.3f}",
+            f"${price_val:.2f}{ma_info}" if not pd.isna(price_val) else "N/A",
+            f"{row['period_return_pct']:+.1f}%" if not pd.isna(row["period_return_pct"]) else "N/A",
+        ])
+
+    headers = ["Rank", "Ticker", "Momentum", "Ann. Slope", "R²", "Price", "90d Return"]
+    print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    print()
+
+    # Enhanced summary statistics
+    print("SUMMARY STATISTICS")
+    print("-" * 50)
+    print(f"📊 Stocks with valid scores: {len(valid_scores)}")
+    if trading_allowed:
+        print(f"✅ Stocks passing all filters: {len(final_stocks)}")
+        if len(valid_scores) > 0:
+            filter_rate = len(final_stocks) / len(valid_scores) * 100
+            print(f"🔍 Filter pass rate: {filter_rate:.1f}%")
+    else:
+        # In the "no trade" case, final_stocks is the top 20%
+        print(f"🎯 Top {config['top_momentum_pct']:.0%} stocks shown: {len(final_stocks)}")
+
+    print(f"📈 Average Momentum Score: {final_stocks['momentum_score'].mean():.3f}")
+    print(f"📐 Average R-squared: {final_stocks['r_squared'].mean():.3f}")
+    print(f"📊 Average 90-day Return: {final_stocks['period_return_pct'].mean():.1f}%")
+
+    if trading_allowed and len(final_stocks) > 0:
+        print(f"🎯 Market Regime: {market_regime['regime'].upper()}")
+        print("💼 Ready for position sizing and portfolio construction")
+    elif not trading_allowed:
+        print(f"⛔ Trading suspended due to {market_regime['regime']} market regime")
+    print()
+
+
+def main():
+    """Main analysis function."""
+    print("=" * 60)
+    print("CLENOW MOMENTUM STRATEGY ANALYSIS")
+    print("=" * 60)
+    print(f"Analysis Date: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    print()
+
+    # Load configuration
+    config = load_config()
+
+    # Step 0: Check Trading Schedule
+    calendar_summary, can_trade, trade_reason = print_trading_schedule_status(config)
+
+    # Show position sizing guidance
+    print_account_sizing(config)
+
+    # Step 1: Get S&P 500 tickers
+    print("Step 1: Fetching S&P 500 tickers...")
+    tickers = get_sp500_tickers()
+
+    if not tickers:
+        print("❌ Could not retrieve tickers. Exiting.")
+        return 1
+
+    print(f"✅ Successfully fetched {len(tickers)} tickers")
+    print("Sample tickers:", tickers[:10])
+    print()
+
+    # Step 2 & 3: Get stock data and calculate momentum
+    stock_data, momentum_df = fetch_and_process_data(tickers, config)
+    if stock_data is None:
+        return 1
+
+    valid_scores = momentum_df.dropna(subset=["momentum_score"])
+
+    # Step 4: Check market regime
+    print(f"Step 4: Checking market regime (SPX vs {config['market_regime_period']}-day MA)...")
+    market_regime = check_market_regime(period=config['market_regime_period'])
+    trading_allowed, regime_reason = should_trade_momentum(market_regime)
+
+    print(f"📊 Market Regime: {market_regime.get('regime', 'unknown').upper()}")
+    print(f"📈 SPX: ${market_regime.get('current_price', 'N/A')} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A')}")
+    print(f"🎯 Trading Status: {'✅ ALLOWED' if trading_allowed else '⛔ SUSPENDED'}")
+    print(f"📝 Reason: {regime_reason}")
+    print()
+
+    # Step 5: Apply trading filters to find eligible stocks
+    print("Step 5: Applying trading filters...")
+    stocks_for_portfolio, final_stocks = check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed)
     print()
 
     # Step 6: Portfolio Construction (if trading allowed)
@@ -215,96 +336,9 @@ def main():
     else:
         # Display portfolio if constructed, otherwise show stock list
         if not portfolio_df.empty:
-            print("🎯 PORTFOLIO WITH POSITION SIZING")
-            print("=" * 60)
-
-            # Prepare portfolio table data
-            table_data = []
-            for _, row in portfolio_df.iterrows():
-                table_data.append([
-                    int(row["portfolio_rank"]),
-                    row["ticker"],
-                    f"{row['momentum_score']:.3f}",
-                    f"${row['current_price']:.2f}",
-                    f"${row['atr']:.2f}",
-                    int(row['shares']),
-                    f"${row['investment']:,.0f}",
-                    f"{row['position_pct']:.1%}",
-                    f"${row['actual_risk']:,.0f}"
-                ])
-
-            headers = ["Rank", "Ticker", "Momentum", "Price", "ATR", "Shares", "Investment", "% Port", "Risk $"]
-            print(tabulate(table_data, headers=headers, tablefmt="grid"))
-            print()
-
-            # Portfolio summary
-            total_investment = portfolio_df['investment'].sum()
-            total_positions = len(portfolio_df)
-            avg_position = total_investment / total_positions
-            total_risk = portfolio_df['actual_risk'].sum()
-
-            print("PORTFOLIO SUMMARY")
-            print("-" * 50)
-            print(f"💰 Account Value: ${config['account_value']:,.0f}")
-            print(f"📊 Total Positions: {total_positions}")
-            print(f"💼 Total Investment: ${total_investment:,.0f}")
-            print(f"💵 Cash Remaining: ${config['account_value'] - total_investment:,.0f}")
-            print(f"📈 Capital Utilization: {total_investment/config['account_value']:.1%}")
-            print(f"⚖️  Average Position: ${avg_position:,.0f}")
-            print(f"⚠️  Total Portfolio Risk: ${total_risk:,.0f}")
-            print(f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['account_value'] * config['risk_per_trade']:,.0f})")
-
+            display_portfolio_table(portfolio_df, config)
         else:
-            # Show filtered stocks without portfolio
-            table_data = []
-            for i, (_, row) in enumerate(final_stocks.iterrows()):
-                # Check if we have filter data (MA info)
-                if 'latest_price' in row and not pd.isna(row['latest_price']):
-                    price_val = row['latest_price']
-                    ma_info = f" (vs MA: {row.get('price_vs_ma', 0):+.1%})" if 'price_vs_ma' in row else ""
-                else:
-                    price_val = row.get('current_price', 0)
-                    ma_info = ""
-
-                table_data.append([
-                    i + 1,  # Re-rank after filtering
-                    row["ticker"],
-                    f"{row['momentum_score']:.3f}",
-                    f"{row['annualized_slope']:.3f}",
-                    f"{row['r_squared']:.3f}",
-                    f"${price_val:.2f}{ma_info}" if not pd.isna(price_val) else "N/A",
-                    f"{row['period_return_pct']:+.1f}%" if not pd.isna(row["period_return_pct"]) else "N/A",
-                ])
-
-            headers = ["Rank", "Ticker", "Momentum", "Ann. Slope", "R²", "Price", "90d Return"]
-            print(tabulate(table_data, headers=headers, tablefmt="grid"))
-
-        print()
-
-        # Enhanced summary statistics (only if portfolio not shown)
-        if portfolio_df.empty:
-            print("SUMMARY STATISTICS")
-            print("-" * 50)
-            print(f"📊 Stocks with valid scores: {len(valid_scores)}")
-            if trading_allowed:
-                print(f"✅ Stocks passing all filters: {len(final_stocks)}")
-                if len(valid_scores) > 0:
-                    filter_rate = len(final_stocks) / len(valid_scores) * 100
-                    print(f"🔍 Filter pass rate: {filter_rate:.1f}%")
-            else:
-                # In the "no trade" case, final_stocks is the top 20%
-                print(f"🎯 Top {config['top_momentum_pct']:.0%} stocks shown: {len(final_stocks)}")
-
-            print(f"📈 Average Momentum Score: {final_stocks['momentum_score'].mean():.3f}")
-            print(f"📐 Average R-squared: {final_stocks['r_squared'].mean():.3f}")
-            print(f"📊 Average 90-day Return: {final_stocks['period_return_pct'].mean():.1f}%")
-
-            if trading_allowed and len(final_stocks) > 0:
-                print(f"🎯 Market Regime: {market_regime['regime'].upper()}")
-                print("💼 Ready for position sizing and portfolio construction")
-            elif not trading_allowed:
-                print(f"⛔ Trading suspended due to {market_regime['regime']} market regime")
-            print()
+            display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime)
 
     # Step 8: Rebalancing Analysis (if it's a rebalancing day and we have a portfolio)
     if calendar_summary['is_rebalancing_day'] and not portfolio_df.empty and config.get('simulate_rebalancing', True):
@@ -362,7 +396,7 @@ def main():
                 # Show all SELL orders first
                 sell_orders = [o for o in rebalancing_orders if o.order_type.value == "SELL"]
                 buy_orders = [o for o in rebalancing_orders if o.order_type.value == "BUY"]
-                
+
                 print(f"\n📉 SELL ORDERS ({len(sell_orders)} total):")
                 for order in sell_orders:
                     order_data.append([
@@ -373,11 +407,11 @@ def main():
                         f"${order.order_value:,.0f}",
                         order.reason[:40] + "..." if len(order.reason) > 40 else order.reason
                     ])
-                
+
                 if sell_orders:
                     headers = ["Type", "Ticker", "Shares", "Price", "Value", "Reason"]
                     print(tabulate(order_data, headers=headers, tablefmt="grid"))
-                    
+
                 print(f"\n📈 BUY ORDERS ({len(buy_orders)} total):")
                 order_data = []
                 for order in buy_orders:
@@ -389,10 +423,10 @@ def main():
                         f"${order.order_value:,.0f}",
                         order.reason[:40] + "..." if len(order.reason) > 40 else order.reason
                     ])
-                
+
                 if buy_orders:
                     print(tabulate(order_data, headers=headers, tablefmt="grid"))
-                
+
                 # Add execution note
                 print("\n💡 EXECUTION NOTE:")
                 print("Execute SELL orders first to free up capital, then execute BUY orders.")

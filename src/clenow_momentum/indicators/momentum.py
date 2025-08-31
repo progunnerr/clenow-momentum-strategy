@@ -73,6 +73,48 @@ def calculate_momentum_score(prices: pd.Series, period: int = 90) -> float:
 
 
 
+def process_ticker_momentum(ticker, prices, period: int) -> dict:
+    """
+    Calculate momentum metrics for a single ticker.
+
+    Args:
+        ticker: Stock ticker symbol
+        prices: Price series for the ticker
+        period: Number of days to look back
+
+    Returns:
+        Dictionary with momentum metrics
+    """
+    # Skip if not enough data
+    clean_prices = prices.dropna()
+    if len(clean_prices) < period:
+        logger.debug(f"Skipping {ticker}: insufficient data ({len(clean_prices)} < {period})")
+        return None
+
+    slope, r_squared = calculate_exponential_regression_slope(prices, period)
+    momentum_score = (
+        slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
+    )
+
+    # Calculate additional metrics
+    current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
+    # Calculate return over the period (go back 'period' days to get the starting price)
+    period_return = (
+        ((current_price / prices.iloc[-period]) - 1) * 100
+        if len(prices) >= period and not pd.isna(prices.iloc[-period])
+        else np.nan
+    )
+
+    return {
+        "ticker": ticker,
+        "momentum_score": momentum_score,
+        "annualized_slope": slope,
+        "r_squared": r_squared,
+        "current_price": current_price,
+        "period_return_pct": period_return,
+    }
+
+
 def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.DataFrame:
     """
     Calculate momentum scores for all stocks in the universe.
@@ -94,116 +136,58 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
         return pd.DataFrame()
 
     results = []
-    processed_count = 0
-    skipped_count = 0
 
     # Handle yfinance group_by="ticker" structure
-    # From your screenshot: data structure is like data['AAPL'] -> DataFrame with ['Open', 'High', 'Low', 'Close', 'Volume']
     if isinstance(data.columns, pd.MultiIndex):
         # Get unique ticker symbols from the first level
         tickers = data.columns.get_level_values(0).unique()
         logger.info(f"Calculating momentum scores for {len(tickers)} stocks with group_by ticker structure (period: {period} days)")
-
-        # Log basic data structure info
         logger.debug(f"Processing {len(tickers)} tickers from MultiIndex DataFrame (shape: {data.shape})")
+
         for ticker in tickers:
             try:
                 # Access the ticker's data - this should be a DataFrame with OHLCV columns
                 ticker_data = data[ticker]
-
                 # Get the Close prices
                 if 'Close' in ticker_data.columns:
                     prices = ticker_data['Close']
                 else:
                     logger.debug(f"No Close column found for {ticker}, columns: {ticker_data.columns.tolist()}")
-                    skipped_count += 1
                     continue
             except (KeyError, AttributeError) as e:
                 logger.debug(f"Error accessing {ticker}: {e}")
-                skipped_count += 1
-                continue
-            # Skip if not enough data
-            if len(prices.dropna()) < period:
-                logger.debug(f"Skipping {ticker}: insufficient data ({len(prices.dropna())} < {period})")
-                skipped_count += 1
                 continue
 
-            slope, r_squared = calculate_exponential_regression_slope(prices, period)
-            momentum_score = (
-                slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
-            )
-
-            # Calculate additional metrics
-            current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
-            # Calculate return over the period (go back 'period' days to get the starting price)
-            period_return = (
-                ((current_price / prices.iloc[-period]) - 1) * 100
-                if len(prices) >= period and not pd.isna(prices.iloc[-period])
-                else np.nan
-            )
-
-            results.append(
-                {
-                    "ticker": ticker,
-                    "momentum_score": momentum_score,
-                    "annualized_slope": slope,
-                    "r_squared": r_squared,
-                    "current_price": current_price,
-                    "period_return_pct": period_return,
-                }
-            )
-            processed_count += 1
+            result = process_ticker_momentum(ticker, prices, period)
+            if result:
+                results.append(result)
     else:
         # Fallback: Simple column structure (single level)
-        # This handles cases where data might be pre-processed or single ticker
         tickers = data.columns
         logger.info(f"Calculating momentum scores for {len(tickers)} stocks with simple columns (period: {period} days)")
+
         for ticker in tickers:
-            # Simple column structure - assume it's already price data
             prices = data[ticker]
-            # Skip if not enough data
-            if len(prices.dropna()) < period:
-                logger.debug(f"Skipping {ticker}: insufficient data ({len(prices.dropna())} < {period})")
-                skipped_count += 1
-                continue
-
-            slope, r_squared = calculate_exponential_regression_slope(prices, period)
-            momentum_score = (
-                slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
-            )
-
-            # Calculate additional metrics
-            current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
-            # Calculate return over the period (go back 'period' days to get the starting price)
-            period_return = (
-                ((current_price / prices.iloc[-period]) - 1) * 100
-                if len(prices) >= period and not pd.isna(prices.iloc[-period])
-                else np.nan
-            )
-
-            results.append(
-                {
-                    "ticker": ticker,
-                    "momentum_score": momentum_score,
-                    "annualized_slope": slope,
-                    "r_squared": r_squared,
-                    "current_price": current_price,
-                    "period_return_pct": period_return,
-                }
-            )
-            processed_count += 1
+            result = process_ticker_momentum(ticker, prices, period)
+            if result:
+                results.append(result)
 
     df = pd.DataFrame(results)
 
     # Sort by momentum score (descending)
     df = df.sort_values("momentum_score", ascending=False, na_position="last")
     df_final = df.reset_index(drop=True)
+
     # Log summary
     valid_scores = df_final.dropna(subset=['momentum_score'])
+    processed_count = len(valid_scores)
+    skipped_count = len(tickers) - len(results) if isinstance(data.columns, pd.MultiIndex) else len(data.columns) - len(results)
+
     logger.success(f"Momentum calculation complete: {processed_count} processed, {skipped_count} skipped, {len(valid_scores)} valid scores")
     if len(valid_scores) > 0:
         top_stock = valid_scores.iloc[0]
         logger.info(f"Top momentum stock: {top_stock['ticker']} (score: {top_stock['momentum_score']:.3f})")
+
     return df_final
 
 
