@@ -2,9 +2,10 @@
 Tests for market regime detection module.
 """
 
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import Mock, patch
 
 from clenow_momentum.strategy.market_regime import (
     calculate_market_ma,
@@ -20,11 +21,11 @@ class TestMarketMA:
     def create_sample_spy_data(self):
         """Create sample SPY data for testing."""
         dates = pd.date_range('2024-01-01', periods=250, freq='D')
-        
+
         # Create trending upward data
         base_prices = range(400, 450)  # SPY-like prices
         prices = base_prices + list(range(450, 500))[:200]  # Extend to 250 days
-        
+
         return pd.DataFrame({
             'Open': prices,
             'High': [p + 2 for p in prices],
@@ -36,16 +37,16 @@ class TestMarketMA:
     def test_calculate_market_ma(self):
         """Test market moving average calculation."""
         spy_data = self.create_sample_spy_data()
-        
+
         # Calculate 50-day MA
         ma = calculate_market_ma(spy_data, period=50)
-        
+
         assert isinstance(ma, pd.Series)
         assert len(ma) == len(spy_data)
-        
+
         # First 49 values should be NaN
         assert pd.isna(ma.iloc[:49]).all()
-        
+
         # 50th value should be average of first 50 closes
         expected_ma50 = spy_data['Close'].iloc[:50].mean()
         assert abs(ma.iloc[49] - expected_ma50) < 0.001
@@ -54,7 +55,7 @@ class TestMarketMA:
         """Test MA calculation with missing Close column."""
         spy_data = self.create_sample_spy_data()
         spy_data = spy_data.drop('Close', axis=1)
-        
+
         with pytest.raises(ValueError, match="SPY data must contain 'Close' column"):
             calculate_market_ma(spy_data, period=50)
 
@@ -65,10 +66,10 @@ class TestMarketRegime:
     def create_bullish_spy_data(self):
         """Create bullish SPY data (above MA)."""
         dates = pd.date_range('2024-01-01', periods=250, freq='D')
-        
+
         # Uptrending prices - current price above MA
         base_prices = list(range(400, 500))  # Strong uptrend
-        
+
         return pd.DataFrame({
             'Close': base_prices + [510] * (250 - len(base_prices))  # Current price high
         }, index=dates)
@@ -76,10 +77,10 @@ class TestMarketRegime:
     def create_bearish_spy_data(self):
         """Create bearish SPY data (below MA)."""
         dates = pd.date_range('2024-01-01', periods=250, freq='D')
-        
+
         # Downtrending prices - current price below MA
         base_prices = list(range(500, 400, -1))  # Strong downtrend
-        
+
         return pd.DataFrame({
             'Close': base_prices + [390] * (250 - len(base_prices))  # Current price low
         }, index=dates)
@@ -88,9 +89,9 @@ class TestMarketRegime:
     def test_check_market_regime_bullish(self, mock_get_data):
         """Test bullish market regime detection."""
         mock_get_data.return_value = self.create_bullish_spy_data()
-        
+
         result = check_market_regime(period=200)
-        
+
         assert result['regime'] == 'bullish'
         assert result['trading_allowed'] is True
         assert result['current_price'] is not None
@@ -101,9 +102,9 @@ class TestMarketRegime:
     def test_check_market_regime_bearish(self, mock_get_data):
         """Test bearish market regime detection."""
         mock_get_data.return_value = self.create_bearish_spy_data()
-        
+
         result = check_market_regime(period=200)
-        
+
         assert result['regime'] == 'bearish'
         assert result['trading_allowed'] is False
         assert result['current_price'] is not None
@@ -114,9 +115,9 @@ class TestMarketRegime:
     def test_check_market_regime_no_data(self, mock_get_data):
         """Test market regime check with no data."""
         mock_get_data.return_value = None
-        
+
         result = check_market_regime(period=200)
-        
+
         assert result['regime'] == 'unknown'
         assert result['trading_allowed'] is False
         assert 'error' in result
@@ -130,11 +131,11 @@ class TestMarketRegime:
         short_data = pd.DataFrame({
             'Close': range(400, 450)
         }, index=dates)
-        
+
         mock_get_data.return_value = short_data
-        
+
         result = check_market_regime(period=200)
-        
+
         assert result['regime'] == 'unknown'
         assert result['trading_allowed'] is False
         assert 'error' in result
@@ -148,9 +149,9 @@ class TestSP500MAStatus:
         """Test getting detailed MA status."""
         spy_data = self.create_sample_spy_data()
         mock_get_data.return_value = spy_data
-        
+
         result = get_sp500_ma_status(period=50)
-        
+
         assert 'current_price' in result
         assert 'ma_value' in result
         assert 'above_ma' in result
@@ -163,11 +164,11 @@ class TestSP500MAStatus:
     def create_sample_spy_data(self):
         """Create sample SPY data with trend."""
         dates = pd.date_range('2024-01-01', periods=300, freq='D')
-        
+
         # Create uptrending data
         base_prices = list(range(400, 500)) + list(range(500, 550))
         prices = base_prices + [550] * (300 - len(base_prices))
-        
+
         return pd.DataFrame({
             'Close': prices
         }, index=dates)
@@ -176,9 +177,9 @@ class TestSP500MAStatus:
     def test_get_sp500_ma_status_no_data(self, mock_get_data):
         """Test MA status with no data."""
         mock_get_data.return_value = None
-        
+
         result = get_sp500_ma_status(period=50)
-        
+
         assert 'error' in result
 
 
@@ -192,9 +193,9 @@ class TestShouldTradeMomentum:
             'trading_allowed': True,
             'ma_period': 200
         }
-        
+
         should_trade, reason = should_trade_momentum(market_regime)
-        
+
         assert should_trade is True
         assert 'bullish' in reason.lower()
         assert '200MA' in reason
@@ -206,9 +207,9 @@ class TestShouldTradeMomentum:
             'trading_allowed': False,
             'ma_period': 200
         }
-        
+
         should_trade, reason = should_trade_momentum(market_regime)
-        
+
         assert should_trade is False
         assert 'bearish' in reason.lower()
         assert 'suspended' in reason.lower()
@@ -220,9 +221,9 @@ class TestShouldTradeMomentum:
             'trading_allowed': False,
             'error': 'Network error'
         }
-        
+
         should_trade, reason = should_trade_momentum(market_regime)
-        
+
         assert should_trade is False
         assert 'error' in reason.lower()
 
@@ -234,9 +235,9 @@ class TestShouldTradeMomentum:
             'trading_allowed': True,
             'ma_period': 200
         }
-        
+
         should_trade, reason = should_trade_momentum()
-        
+
         assert should_trade is True
         mock_check_regime.assert_called_once()
 
@@ -248,9 +249,9 @@ class TestErrorHandling:
     def test_check_market_regime_exception(self, mock_get_data):
         """Test exception handling in market regime check."""
         mock_get_data.side_effect = Exception("Network error")
-        
+
         result = check_market_regime()
-        
+
         assert result['regime'] == 'unknown'
         assert result['trading_allowed'] is False
         assert 'error' in result
@@ -259,7 +260,7 @@ class TestErrorHandling:
     def test_get_sp500_ma_status_exception(self, mock_get_data):
         """Test exception handling in MA status."""
         mock_get_data.side_effect = Exception("API error")
-        
+
         result = get_sp500_ma_status()
-        
+
         assert 'error' in result
