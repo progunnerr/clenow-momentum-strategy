@@ -1,12 +1,48 @@
 [project]
 name = "clenow-momentum-project"
 version = "0.1.0"
-description = "Add your description here"
+description = "Implementation of Andreas Clenow's momentum trading strategy for S&P 500 stocks"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pandas",
-    "yfinance",
-    "requests",
-    "beautifulsoup4",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "yfinance>=0.2.0",
+    "scipy>=1.10.0",
+    "requests>=2.28.0",
+    "beautifulsoup4>=4.11.0",
+    "pyyaml>=6.0.0",
+    "tabulate>=0.9.0",
+    "loguru>=0.7.0",
+    "lxml>=4.9.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+analyze = "scripts.run_analysis:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "C90", "I", "N", "UP", "B", "A", "C4", "DTZ", "T20", "RET", "SIM"]
+ignore = ["E501"]  # Line too long (handled by formatter)
+
+[tool.ruff.lint.per-file-ignores]
+"main.py" = ["T201"]  # Allow print statements in main entry point
+"scripts/*.py" = ["T201"]  # Allow print statements in scripts
+
