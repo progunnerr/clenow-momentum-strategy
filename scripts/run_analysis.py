@@ -107,38 +107,34 @@ def main():
     print(f"📝 Reason: {regime_reason}")
     print()
 
-    # Step 5: Get top momentum stocks
-    print(f"Step 5: Selecting top {config['top_momentum_pct']:.0%} momentum stocks...")
-    top_momentum_stocks = get_top_momentum_stocks(momentum_df, top_pct=config['top_momentum_pct'])
-
-    print(f"✅ Selected {len(top_momentum_stocks)} top momentum stocks (before filters)")
-    print()
-
-    # Step 6: Apply trading filters
-    print("Step 6: Applying trading filters...")
+    # Step 5: Apply trading filters to find eligible stocks
+    print("Step 5: Applying trading filters...")
 
     if trading_allowed:
-        print(f"🔍 Applying {config['ma_filter_period']}-day MA filter and gap exclusion filter...")
+        # Filter the entire universe of stocks with valid momentum scores
+        stocks_to_filter = momentum_df.dropna(subset=['momentum_score'])
+        print(f"🔍 Applying filters to all {len(stocks_to_filter)} stocks with valid momentum scores...")
         filtered_stocks = apply_all_filters(
-            top_momentum_stocks,
+            stocks_to_filter,
             stock_data,
             ma_period=config['ma_filter_period'],
             gap_threshold=config['gap_threshold']
         )
 
-        print(f"✅ {len(filtered_stocks)} stocks passed all filters")
+        print(f"✅ {len(filtered_stocks)} stocks passed all filters and are eligible for portfolio inclusion.")
         final_stocks = filtered_stocks
     else:
         print("⛔ Market regime not favorable - skipping individual stock filters")
-        print("📊 Showing momentum rankings for informational purposes only")
-        final_stocks = top_momentum_stocks
+        print(f"📊 Showing top {config['top_momentum_pct']:.0%} momentum rankings for informational purposes only...")
+        # For informational purposes, show the top 20% unfiltered
+        final_stocks = get_top_momentum_stocks(momentum_df, top_pct=config['top_momentum_pct'])
 
     print()
 
-    # Step 7: Portfolio Construction (if trading allowed)
+    # Step 6: Portfolio Construction (if trading allowed)
     portfolio_df = pd.DataFrame()
     if trading_allowed and not final_stocks.empty:
-        print("Step 7: Portfolio Construction & Position Sizing...")
+        print("Step 6: Portfolio Construction & Position Sizing...")
 
         # Build portfolio with position sizing (Clenow's risk parity method)
         portfolio_df = build_portfolio(
@@ -165,7 +161,7 @@ def main():
 
         print()
 
-    # Step 8: Display results
+    # Step 7: Display results
     print("=" * 60)
     if trading_allowed:
         print("TOP MOMENTUM STOCKS (FILTERED)")
@@ -251,11 +247,15 @@ def main():
         if portfolio_df.empty:
             print("SUMMARY STATISTICS")
             print("-" * 50)
-            print(f"📊 Stocks analyzed: {len(valid_scores)}")
-            print(f"🎯 Top 20% selected: {len(top_momentum_stocks)}")
+            print(f"📊 Stocks with valid scores: {len(valid_scores)}")
             if trading_allowed:
-                print(f"✅ Passed all filters: {len(final_stocks)}")
-                print(f"🔍 Filter success rate: {len(final_stocks)/len(top_momentum_stocks)*100:.1f}%")
+                print(f"✅ Stocks passing all filters: {len(final_stocks)}")
+                if len(valid_scores) > 0:
+                    filter_rate = len(final_stocks) / len(valid_scores) * 100
+                    print(f"🔍 Filter pass rate: {filter_rate:.1f}%")
+            else:
+                # In the "no trade" case, final_stocks is the top 20%
+                print(f"🎯 Top {config['top_momentum_pct']:.0%} stocks shown: {len(final_stocks)}")
 
             print(f"📈 Average Momentum Score: {final_stocks['momentum_score'].mean():.3f}")
             print(f"📐 Average R-squared: {final_stocks['r_squared'].mean():.3f}")

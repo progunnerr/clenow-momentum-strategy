@@ -381,8 +381,8 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
         logger.warning("No valid positions created")
         return pd.DataFrame()
 
-    # Sort by investment amount (largest positions first)
-    portfolio_df = portfolio_df.sort_values('investment', ascending=False).reset_index(drop=True)
+    # The incoming data is already sorted by momentum score. Preserve this ranking.
+    portfolio_df = portfolio_df.reset_index(drop=True)
 
     # Add portfolio statistics
     portfolio_df['portfolio_rank'] = range(1, len(portfolio_df) + 1)
@@ -430,7 +430,7 @@ def apply_risk_limits(portfolio_df: pd.DataFrame, max_positions: int = 20,
     else:
         logger.info("Minimum position filter skipped for equal dollar allocation")
 
-    # Limit to maximum number of positions (keep largest positions)
+    # Limit to maximum number of positions (keep highest momentum stocks)
     portfolio_df = portfolio_df.head(max_positions).copy()
 
     # Re-rank after filtering
