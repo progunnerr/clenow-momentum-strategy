@@ -35,9 +35,8 @@ def calculate_true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> p
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
 
-    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 
-    return true_range
 
 
 def calculate_atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
@@ -65,12 +64,12 @@ def calculate_atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
     # Initialize ATR using Wilder's method
     # Start with simple average of first period TR values, then use smoothed formula
     atr = tr.copy()
-    
+
     # Seed with simple average of first period True Range values
     first_atr = tr.iloc[:period].mean()
     atr.iloc[:period] = np.nan
     atr.iloc[period-1] = first_atr
-    
+
     # Apply Wilder's smoothing formula for subsequent values
     # ATR[i] = (ATR[i-1] * (period-1) + TR[i]) / period
     for i in range(period, len(atr)):
@@ -194,7 +193,7 @@ def calculate_position_size(account_value: float, risk_per_trade: float,
 
     # Determine limiting factor before rounding to avoid misidentification
     limited_by_position = shares_based_on_risk > max_shares
-    
+
     # Use the smaller of the two (risk-based or position limit)
     shares_float = min(shares_based_on_risk, max_shares)
     shares = max(0, int(shares_float))  # Ensure positive integer
@@ -248,12 +247,12 @@ def build_portfolio(filtered_stocks: pd.DataFrame, stock_data: pd.DataFrame,
     logger.info(f"Building portfolio for {len(filtered_stocks)} stocks...")
     logger.info(f"Account Value: ${account_value:,.0f}")
     logger.info(f"Allocation Method: {allocation_method}")
-    
+
     # Handle empty filtered stocks
     if filtered_stocks.empty:
         logger.warning("No stocks to build portfolio with")
         return pd.DataFrame()
-    
+
     if allocation_method == "equal_risk":
         logger.info(f"Risk per trade: {risk_per_trade:.3%}")
     else:

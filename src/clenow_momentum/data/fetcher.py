@@ -78,7 +78,7 @@ def _get_major_sp500_tickers() -> list[str]:
                     last_price = info.last_price
                 elif isinstance(info, dict) and 'last_price' in info:
                     last_price = info['last_price']
-            
+
             if last_price and last_price > 0:
                 verified_tickers.append(ticker)
         except Exception as e:

@@ -88,11 +88,11 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     if data is None or data.empty:
         logger.error("Input data is None or empty")
         return pd.DataFrame()
-    
+
     if not isinstance(data, pd.DataFrame):
         logger.error(f"Expected DataFrame, got {type(data)}")
         return pd.DataFrame()
-    
+
     results = []
     processed_count = 0
     skipped_count = 0

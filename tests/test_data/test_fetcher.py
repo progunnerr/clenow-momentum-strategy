@@ -62,7 +62,7 @@ class TestGetSP500Tickers:
         mock_soup_instance = MagicMock()
         mock_soup_instance.find.return_value = None
         mock_soup.return_value = mock_soup_instance
-        
+
         # Mock yfinance fallback
         mock_yfinance.return_value = ["AAPL", "MSFT"]
 
@@ -85,7 +85,7 @@ class TestGetSP500Tickers:
         # Mock pandas read_html to return data without Symbol column
         test_df = pd.DataFrame({"Ticker": ["AAPL", "MSFT"]})  # Wrong column name
         mock_read_html.return_value = [test_df]
-        
+
         # Mock yfinance fallback
         mock_yfinance.return_value = ["AAPL", "MSFT"]
 
