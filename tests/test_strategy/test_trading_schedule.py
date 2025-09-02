@@ -188,14 +188,14 @@ class TestRebalancingSchedule:
 
         for i, expected in enumerate(expected_dates):
             if i < len(schedule):
-                actual = schedule.iloc[i]['rebalancing_date']
+                actual = schedule.iloc[i]["rebalancing_date"]
                 assert actual.date() == expected.date()
                 assert actual.weekday() == 2  # Wednesday
 
         # Check all are in odd months
         for _, row in schedule.iterrows():
-            assert row['month'] in [1, 3, 5, 7, 9, 11]
-            assert row['weekday'] == 'Wednesday'
+            assert row["month"] in [1, 3, 5, 7, 9, 11]
+            assert row["weekday"] == "Wednesday"
 
 
 class TestTradingDecisions:
@@ -232,15 +232,15 @@ class TestTradingDecisions:
         # This test will be date-dependent, so we just check structure
         summary = get_trading_calendar_summary()
 
-        assert 'current_date' in summary
-        assert 'current_weekday' in summary
-        assert 'is_trading_day' in summary
-        assert 'is_rebalancing_day' in summary
-        assert 'next_trading_day' in summary
-        assert 'next_rebalancing_date' in summary
-        assert 'rebalancing_months' in summary
-        assert 'days_until_next_trading' in summary
-        assert 'days_until_next_rebalancing' in summary
+        assert "current_date" in summary
+        assert "current_weekday" in summary
+        assert "is_trading_day" in summary
+        assert "is_rebalancing_day" in summary
+        assert "next_trading_day" in summary
+        assert "next_rebalancing_date" in summary
+        assert "rebalancing_months" in summary
+        assert "days_until_next_trading" in summary
+        assert "days_until_next_rebalancing" in summary
 
         # Check rebalancing months
-        assert summary['rebalancing_months'] == [1, 3, 5, 7, 9, 11]
+        assert summary["rebalancing_months"] == [1, 3, 5, 7, 9, 11]

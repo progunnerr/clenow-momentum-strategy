@@ -1,4 +1,3 @@
-
 from io import StringIO
 
 import pandas as pd
@@ -15,7 +14,7 @@ def _try_spy_holdings() -> list[str] | None:
         holdings = spy.get_holdings()
         if holdings is not None and len(holdings) > 0:
             tickers = holdings.index.tolist()
-            tickers = [ticker.split('.')[0] for ticker in tickers]
+            tickers = [ticker.split(".")[0] for ticker in tickers]
             logger.success(f"Successfully fetched {len(tickers)} S&P 500 tickers via SPY holdings")
             return tickers
     except Exception as e:
@@ -28,10 +27,14 @@ def _try_spy_info() -> list[str] | None:
     try:
         spy = yf.Ticker("SPY")
         info = spy.info
-        if 'holdings' in info:
-            holdings = info['holdings']
+        if "holdings" in info:
+            holdings = info["holdings"]
             if holdings and len(holdings) > 0:
-                tickers = [h.get('symbol', h.get('ticker', '')) for h in holdings if h.get('symbol') or h.get('ticker')]
+                tickers = [
+                    h.get("symbol", h.get("ticker", ""))
+                    for h in holdings
+                    if h.get("symbol") or h.get("ticker")
+                ]
                 tickers = [t for t in tickers if t]  # Remove empty strings
                 logger.success(f"Successfully fetched {len(tickers)} S&P 500 tickers via SPY info")
                 return tickers
@@ -44,23 +47,61 @@ def _get_major_sp500_tickers() -> list[str]:
     """Get a curated list of major S&P 500 companies."""
     major_sp500 = [
         # Technology giants
-        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
-        "AVGO", "ORCL", "CRM", "ADBE", "NFLX", "AMD", "INTC", "CSCO",
-
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "AMZN",
+        "NVDA",
+        "META",
+        "TSLA",
+        "AVGO",
+        "ORCL",
+        "CRM",
+        "ADBE",
+        "NFLX",
+        "AMD",
+        "INTC",
+        "CSCO",
         # Healthcare & Pharma leaders
-        "UNH", "JNJ", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "LLY",
-
+        "UNH",
+        "JNJ",
+        "PFE",
+        "ABBV",
+        "MRK",
+        "TMO",
+        "ABT",
+        "DHR",
+        "LLY",
         # Financial powerhouses
-        "BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS",
-
+        "BRK-B",
+        "JPM",
+        "V",
+        "MA",
+        "BAC",
+        "WFC",
+        "GS",
+        "MS",
         # Consumer & Industrial leaders
-        "HD", "PG", "KO", "PEP", "WMT", "DIS", "MCD", "NKE", "BA", "CAT",
-
+        "HD",
+        "PG",
+        "KO",
+        "PEP",
+        "WMT",
+        "DIS",
+        "MCD",
+        "NKE",
+        "BA",
+        "CAT",
         # Energy & Utilities
-        "XOM", "CVX", "NEE", "DUK",
-
+        "XOM",
+        "CVX",
+        "NEE",
+        "DUK",
         # Communication & Media
-        "VZ", "T", "TMUS", "CMCSA"
+        "VZ",
+        "T",
+        "TMUS",
+        "CMCSA",
     ]
 
     # Verify these tickers exist and are tradeable
@@ -74,10 +115,10 @@ def _get_major_sp500_tickers() -> list[str]:
             # Handle both attribute-style and dict-style access
             last_price = None
             if info:
-                if hasattr(info, 'last_price'):
+                if hasattr(info, "last_price"):
                     last_price = info.last_price
-                elif isinstance(info, dict) and 'last_price' in info:
-                    last_price = info['last_price']
+                elif isinstance(info, dict) and "last_price" in info:
+                    last_price = info["last_price"]
 
             if last_price and last_price > 0:
                 verified_tickers.append(ticker)
@@ -125,11 +166,11 @@ def get_sp500_tickers() -> list[str]:
 
     # Add headers to avoid 403 Forbidden errors
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate',
-        'Connection': 'keep-alive',
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
     }
 
     try:

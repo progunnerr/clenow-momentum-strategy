@@ -30,29 +30,31 @@ def load_config() -> dict:
 
     config = {
         # Account Settings
-        'account_value': float(os.getenv('ACCOUNT_VALUE', '100000')),
-        'risk_per_trade': float(os.getenv('RISK_PER_TRADE', '0.001')),
-
+        "account_value": float(os.getenv("ACCOUNT_VALUE", "100000")),
+        "risk_per_trade": float(os.getenv("RISK_PER_TRADE", "0.001")),
         # Portfolio Construction
-        'max_positions': int(os.getenv('MAX_POSITIONS', '20')),
-        'min_position_value': float(os.getenv('MIN_POSITION_VALUE', '5000')),
-        'max_position_pct': float(os.getenv('MAX_POSITION_PCT', '0.05')),
-
+        "max_positions": int(os.getenv("MAX_POSITIONS", "20")),
+        "min_position_value": float(os.getenv("MIN_POSITION_VALUE", "5000")),
+        "max_position_pct": float(os.getenv("MAX_POSITION_PCT", "0.05")),
         # Strategy Parameters
-        'top_momentum_pct': float(os.getenv('TOP_MOMENTUM_PCT', '0.20')),
-        'momentum_period': int(os.getenv('MOMENTUM_PERIOD', '90')),
-        'ma_filter_period': int(os.getenv('MA_FILTER_PERIOD', '100')),
-        'market_regime_period': int(os.getenv('MARKET_REGIME_PERIOD', '200')),
-        'gap_threshold': float(os.getenv('GAP_THRESHOLD', '0.15')),
-        'atr_period': int(os.getenv('ATR_PERIOD', '14')),
-        'stop_loss_multiplier': float(os.getenv('STOP_LOSS_MULTIPLIER', '3.0')),  # Clenow uses 3x ATR
-
+        "top_momentum_pct": float(os.getenv("TOP_MOMENTUM_PCT", "0.20")),
+        "momentum_period": int(os.getenv("MOMENTUM_PERIOD", "90")),
+        "ma_filter_period": int(os.getenv("MA_FILTER_PERIOD", "100")),
+        "market_regime_period": int(os.getenv("MARKET_REGIME_PERIOD", "200")),
+        "gap_threshold": float(os.getenv("GAP_THRESHOLD", "0.15")),
+        "atr_period": int(os.getenv("ATR_PERIOD", "14")),
+        "stop_loss_multiplier": float(
+            os.getenv("STOP_LOSS_MULTIPLIER", "3.0")
+        ),  # Clenow uses 3x ATR
         # Rebalancing Parameters
-        'rebalancing_frequency': os.getenv('REBALANCING_FREQUENCY', 'bi-monthly'),  # bi-monthly or monthly
-        'cash_buffer': float(os.getenv('CASH_BUFFER', '0.02')),  # 2% cash buffer
-        'portfolio_state_file': os.getenv('PORTFOLIO_STATE_FILE', 'data/portfolio_state.json'),
-        'simulate_rebalancing': os.getenv('SIMULATE_REBALANCING', 'true').lower() == 'true',
-        'bypass_wednesday_check': os.getenv('BYPASS_WEDNESDAY_CHECK', 'false').lower() == 'true',  # For testing - also triggers rebalancing
+        "rebalancing_frequency": os.getenv(
+            "REBALANCING_FREQUENCY", "bi-monthly"
+        ),  # bi-monthly or monthly
+        "cash_buffer": float(os.getenv("CASH_BUFFER", "0.02")),  # 2% cash buffer
+        "portfolio_state_file": os.getenv("PORTFOLIO_STATE_FILE", "data/portfolio_state.json"),
+        "simulate_rebalancing": os.getenv("SIMULATE_REBALANCING", "true").lower() == "true",
+        "bypass_wednesday_check": os.getenv("BYPASS_WEDNESDAY_CHECK", "false").lower()
+        == "true",  # For testing - also triggers rebalancing
     }
 
     # Log key settings
@@ -90,16 +92,16 @@ def get_position_sizing_guide(account_value: float) -> dict:
     risk_per_trade_dollars = account_value * 0.001  # 0.1%
 
     return {
-        'account_value': account_value,
-        'recommended_positions': recommended_positions,
-        'risk_level': risk_level,
-        'risk_per_trade_dollars': risk_per_trade_dollars,
-        'min_position_for_diversification': account_value / recommended_positions,
-        'guidance': {
-            'risk_per_trade': f"${risk_per_trade_dollars:.0f} (0.1% of account)",
-            'position_sizing': f"Target {recommended_positions} positions for optimal diversification",
-            'min_stock_price': f"Can trade stocks up to ${risk_per_trade_dollars * 10:.0f} effectively"
-        }
+        "account_value": account_value,
+        "recommended_positions": recommended_positions,
+        "risk_level": risk_level,
+        "risk_per_trade_dollars": risk_per_trade_dollars,
+        "min_position_for_diversification": account_value / recommended_positions,
+        "guidance": {
+            "risk_per_trade": f"${risk_per_trade_dollars:.0f} (0.1% of account)",
+            "position_sizing": f"Target {recommended_positions} positions for optimal diversification",
+            "min_stock_price": f"Can trade stocks up to ${risk_per_trade_dollars * 10:.0f} effectively",
+        },
     }
 
 
@@ -116,24 +118,24 @@ def validate_config(config: dict) -> list:
     warnings = []
 
     # Account value checks
-    if config['account_value'] < 10000:
+    if config["account_value"] < 10000:
         warnings.append("⚠️  Account value under $10,000 may limit diversification")
 
     # Risk per trade checks
-    if config['risk_per_trade'] > 0.005:
+    if config["risk_per_trade"] > 0.005:
         warnings.append("⚠️  Risk per trade > 0.5% is quite aggressive")
-    elif config['risk_per_trade'] < 0.0005:
+    elif config["risk_per_trade"] < 0.0005:
         warnings.append("⚠️  Risk per trade < 0.05% is very conservative")
 
     # Position count checks
-    config['account_value'] * config['risk_per_trade']
-    if config['max_positions'] > config['account_value'] / config['min_position_value']:
+    config["account_value"] * config["risk_per_trade"]
+    if config["max_positions"] > config["account_value"] / config["min_position_value"]:
         warnings.append("⚠️  Too many positions for account size given minimum position value")
 
     # Diversification checks
-    if config['max_positions'] < 10:
+    if config["max_positions"] < 10:
         warnings.append("ℹ️  Less than 10 positions reduces diversification")
-    elif config['max_positions'] > 25:
+    elif config["max_positions"] > 25:
         warnings.append("ℹ️  More than 25 positions may be over-diversified")
 
     return warnings

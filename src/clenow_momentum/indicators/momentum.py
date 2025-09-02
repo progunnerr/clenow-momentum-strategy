@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -72,7 +71,6 @@ def calculate_momentum_score(prices: pd.Series, period: int = 90) -> float:
     return slope * r_squared
 
 
-
 def process_ticker_momentum(ticker, prices, period: int) -> dict:
     """
     Calculate momentum metrics for a single ticker.
@@ -92,9 +90,7 @@ def process_ticker_momentum(ticker, prices, period: int) -> dict:
         return None
 
     slope, r_squared = calculate_exponential_regression_slope(prices, period)
-    momentum_score = (
-        slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
-    )
+    momentum_score = slope * r_squared if not (np.isnan(slope) or np.isnan(r_squared)) else np.nan
 
     # Calculate additional metrics
     current_price = prices.iloc[-1] if not pd.isna(prices.iloc[-1]) else np.nan
@@ -141,18 +137,24 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     if isinstance(data.columns, pd.MultiIndex):
         # Get unique ticker symbols from the first level
         tickers = data.columns.get_level_values(0).unique()
-        logger.info(f"Calculating momentum scores for {len(tickers)} stocks with group_by ticker structure (period: {period} days)")
-        logger.debug(f"Processing {len(tickers)} tickers from MultiIndex DataFrame (shape: {data.shape})")
+        logger.info(
+            f"Calculating momentum scores for {len(tickers)} stocks with group_by ticker structure (period: {period} days)"
+        )
+        logger.debug(
+            f"Processing {len(tickers)} tickers from MultiIndex DataFrame (shape: {data.shape})"
+        )
 
         for ticker in tickers:
             try:
                 # Access the ticker's data - this should be a DataFrame with OHLCV columns
                 ticker_data = data[ticker]
                 # Get the Close prices
-                if 'Close' in ticker_data.columns:
-                    prices = ticker_data['Close']
+                if "Close" in ticker_data.columns:
+                    prices = ticker_data["Close"]
                 else:
-                    logger.debug(f"No Close column found for {ticker}, columns: {ticker_data.columns.tolist()}")
+                    logger.debug(
+                        f"No Close column found for {ticker}, columns: {ticker_data.columns.tolist()}"
+                    )
                     continue
             except (KeyError, AttributeError) as e:
                 logger.debug(f"Error accessing {ticker}: {e}")
@@ -164,7 +166,9 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     else:
         # Fallback: Simple column structure (single level)
         tickers = data.columns
-        logger.info(f"Calculating momentum scores for {len(tickers)} stocks with simple columns (period: {period} days)")
+        logger.info(
+            f"Calculating momentum scores for {len(tickers)} stocks with simple columns (period: {period} days)"
+        )
 
         for ticker in tickers:
             prices = data[ticker]
@@ -179,17 +183,24 @@ def calculate_momentum_for_universe(data: pd.DataFrame, period: int = 90) -> pd.
     df_final = df.reset_index(drop=True)
 
     # Log summary
-    valid_scores = df_final.dropna(subset=['momentum_score'])
+    valid_scores = df_final.dropna(subset=["momentum_score"])
     processed_count = len(valid_scores)
-    skipped_count = len(tickers) - len(results) if isinstance(data.columns, pd.MultiIndex) else len(data.columns) - len(results)
+    skipped_count = (
+        len(tickers) - len(results)
+        if isinstance(data.columns, pd.MultiIndex)
+        else len(data.columns) - len(results)
+    )
 
-    logger.success(f"Momentum calculation complete: {processed_count} processed, {skipped_count} skipped, {len(valid_scores)} valid scores")
+    logger.success(
+        f"Momentum calculation complete: {processed_count} processed, {skipped_count} skipped, {len(valid_scores)} valid scores"
+    )
     if len(valid_scores) > 0:
         top_stock = valid_scores.iloc[0]
-        logger.info(f"Top momentum stock: {top_stock['ticker']} (score: {top_stock['momentum_score']:.3f})")
+        logger.info(
+            f"Top momentum stock: {top_stock['ticker']} (score: {top_stock['momentum_score']:.3f})"
+        )
 
     return df_final
-
 
 
 def get_top_momentum_stocks(momentum_df: pd.DataFrame, top_pct: float = 0.20) -> pd.DataFrame:
@@ -205,7 +216,9 @@ def get_top_momentum_stocks(momentum_df: pd.DataFrame, top_pct: float = 0.20) ->
     """
     # Remove NaN momentum scores
     valid_scores = momentum_df.dropna(subset=["momentum_score"])
-    logger.info(f"Selecting top {top_pct:.0%} from {len(valid_scores)} stocks with valid momentum scores")
+    logger.info(
+        f"Selecting top {top_pct:.0%} from {len(valid_scores)} stocks with valid momentum scores"
+    )
 
     # Calculate number of stocks to select
     n_stocks = int(len(valid_scores) * top_pct)
@@ -217,7 +230,7 @@ def get_top_momentum_stocks(momentum_df: pd.DataFrame, top_pct: float = 0.20) ->
 
     logger.success(f"Selected {len(top_stocks)} top momentum stocks")
     if len(top_stocks) > 0:
-        avg_score = top_stocks['momentum_score'].mean()
+        avg_score = top_stocks["momentum_score"].mean()
         logger.info(f"Average momentum score of selected stocks: {avg_score:.3f}")
 
     return top_stocks

@@ -38,8 +38,8 @@ def process_ticker_ma(ticker, ticker_data, ma_period: int) -> dict | None:
     """
     try:
         # Extract close prices based on data structure
-        if isinstance(ticker_data, pd.DataFrame) and 'Close' in ticker_data.columns:
-            prices = ticker_data['Close'].dropna()
+        if isinstance(ticker_data, pd.DataFrame) and "Close" in ticker_data.columns:
+            prices = ticker_data["Close"].dropna()
         elif isinstance(ticker_data, pd.Series):
             prices = ticker_data.dropna()
         else:
@@ -65,11 +65,11 @@ def process_ticker_ma(ticker, ticker_data, ma_period: int) -> dict | None:
         above_ma = latest_price > latest_ma
 
         return {
-            'ticker': ticker,
-            'latest_price': latest_price,
-            f'ma_{ma_period}': latest_ma,
-            'price_vs_ma': latest_price / latest_ma - 1.0,  # Percentage above/below MA
-            'above_ma': above_ma
+            "ticker": ticker,
+            "latest_price": latest_price,
+            f"ma_{ma_period}": latest_ma,
+            "price_vs_ma": latest_price / latest_ma - 1.0,  # Percentage above/below MA
+            "above_ma": above_ma,
         }
     except (KeyError, AttributeError) as e:
         logger.debug(f"Error processing {ticker} for MA filter: {e}")
@@ -101,11 +101,13 @@ def filter_above_ma(data: pd.DataFrame, ma_period: int = 100) -> pd.DataFrame:
     # Extract tickers based on column structure
     if isinstance(data.columns, pd.MultiIndex):
         tickers = data.columns.get_level_values(0).unique()
+
         def ticker_data_func(t):
             return data[t]
     else:
         logger.warning("Simple column structure detected - assuming columns are price data")
         tickers = data.columns
+
         def ticker_data_func(t):
             return data[t]
 
@@ -119,8 +121,8 @@ def filter_above_ma(data: pd.DataFrame, ma_period: int = 100) -> pd.DataFrame:
     df = pd.DataFrame(results)
 
     # Count results
-    passed_count = len(df[df['above_ma'] == True]) if not df.empty else 0
-    failed_count = len(df[df['above_ma'] == False]) if not df.empty else 0
+    passed_count = len(df[df["above_ma"]]) if not df.empty else 0
+    failed_count = len(df[~df["above_ma"]]) if not df.empty else 0
     # Add skipped tickers (those that had no results at all)
     skipped_count = len(tickers) - len(results)
     failed_count += skipped_count
@@ -153,12 +155,12 @@ def detect_gaps(data: pd.DataFrame, gap_threshold: float = 0.15) -> pd.DataFrame
         for ticker in tickers:
             try:
                 ticker_data = data[ticker]
-                if 'Close' not in ticker_data.columns or 'Open' not in ticker_data.columns:
+                if "Close" not in ticker_data.columns or "Open" not in ticker_data.columns:
                     logger.debug(f"Missing OHLC data for {ticker}")
                     continue
 
-                close_prices = ticker_data['Close'].dropna()
-                open_prices = ticker_data['Open'].dropna()
+                close_prices = ticker_data["Close"].dropna()
+                open_prices = ticker_data["Open"].dropna()
 
                 if len(close_prices) < 2 or len(open_prices) < 2:
                     continue
@@ -181,17 +183,19 @@ def detect_gaps(data: pd.DataFrame, gap_threshold: float = 0.15) -> pd.DataFrame
 
                 # Determine gap direction safely to avoid KeyError
                 if max_gap_date is not None:
-                    direction = 'up' if recent_gaps.loc[max_gap_date] > 0 else 'down'
+                    direction = "up" if recent_gaps.loc[max_gap_date] > 0 else "down"
                 else:
-                    direction = 'none'
+                    direction = "none"
 
-                results.append({
-                    'ticker': ticker,
-                    'max_gap': max_gap,
-                    'max_gap_date': max_gap_date,
-                    'has_large_gap': has_large_gap,
-                    'gap_direction': direction
-                })
+                results.append(
+                    {
+                        "ticker": ticker,
+                        "max_gap": max_gap,
+                        "max_gap_date": max_gap_date,
+                        "has_large_gap": has_large_gap,
+                        "gap_direction": direction,
+                    }
+                )
 
             except Exception as e:
                 logger.debug(f"Error detecting gaps for {ticker}: {e}")
@@ -201,16 +205,20 @@ def detect_gaps(data: pd.DataFrame, gap_threshold: float = 0.15) -> pd.DataFrame
 
     if not df.empty:
         # Sort by gap size (largest gaps first)
-        df = df.sort_values('max_gap', ascending=False)
+        df = df.sort_values("max_gap", ascending=False)
 
-        large_gaps = df[df['has_large_gap']].shape[0]
-        clean_stocks = df[~df['has_large_gap']].shape[0]
-        logger.info(f"Gap Analysis: {large_gaps} stocks with gaps > {gap_threshold:.1%}, {clean_stocks} clean stocks")
+        large_gaps = df[df["has_large_gap"]].shape[0]
+        clean_stocks = df[~df["has_large_gap"]].shape[0]
+        logger.info(
+            f"Gap Analysis: {large_gaps} stocks with gaps > {gap_threshold:.1%}, {clean_stocks} clean stocks"
+        )
 
     return df
 
 
-def filter_exclude_gaps(momentum_df: pd.DataFrame, stock_data: pd.DataFrame, gap_threshold: float = 0.15) -> pd.DataFrame:
+def filter_exclude_gaps(
+    momentum_df: pd.DataFrame, stock_data: pd.DataFrame, gap_threshold: float = 0.15
+) -> pd.DataFrame:
     """
     Apply gap filter to momentum-ranked stocks.
 
@@ -232,20 +240,26 @@ def filter_exclude_gaps(momentum_df: pd.DataFrame, stock_data: pd.DataFrame, gap
         return momentum_df
 
     # Create a set of tickers with large gaps for quick lookup
-    gapped_tickers = set(gap_df[gap_df['has_large_gap']]['ticker'].tolist())
+    gapped_tickers = set(gap_df[gap_df["has_large_gap"]]["ticker"].tolist())
 
     # Filter out gapped stocks
     original_count = len(momentum_df)
-    filtered_df = momentum_df[~momentum_df['ticker'].isin(gapped_tickers)].copy()
+    filtered_df = momentum_df[~momentum_df["ticker"].isin(gapped_tickers)].copy()
     excluded_count = original_count - len(filtered_df)
 
-    logger.info(f"Gap Filter: Excluded {excluded_count} stocks with large gaps, {len(filtered_df)} remaining")
+    logger.info(
+        f"Gap Filter: Excluded {excluded_count} stocks with large gaps, {len(filtered_df)} remaining"
+    )
 
     return filtered_df
 
 
-def apply_all_filters(momentum_df: pd.DataFrame, stock_data: pd.DataFrame,
-                     ma_period: int = 100, gap_threshold: float = 0.15) -> pd.DataFrame:
+def apply_all_filters(
+    momentum_df: pd.DataFrame,
+    stock_data: pd.DataFrame,
+    ma_period: int = 100,
+    gap_threshold: float = 0.15,
+) -> pd.DataFrame:
     """
     Apply all trading filters to momentum-ranked stocks.
 
@@ -272,12 +286,14 @@ def apply_all_filters(momentum_df: pd.DataFrame, stock_data: pd.DataFrame,
     ma_filter_df = filter_above_ma(stock_data, ma_period)
     if not ma_filter_df.empty:
         # Keep only stocks above MA
-        above_ma_tickers = set(ma_filter_df[ma_filter_df['above_ma']]['ticker'].tolist())
-        filtered_df = filtered_df[filtered_df['ticker'].isin(above_ma_tickers)].copy()
+        above_ma_tickers = set(ma_filter_df[ma_filter_df["above_ma"]]["ticker"].tolist())
+        filtered_df = filtered_df[filtered_df["ticker"].isin(above_ma_tickers)].copy()
 
         # Add MA data to results
-        ma_data = ma_filter_df.set_index('ticker')[['latest_price', f'ma_{ma_period}', 'price_vs_ma']]
-        filtered_df = filtered_df.set_index('ticker').join(ma_data, how='left').reset_index()
+        ma_data = ma_filter_df.set_index("ticker")[
+            ["latest_price", f"ma_{ma_period}", "price_vs_ma"]
+        ]
+        filtered_df = filtered_df.set_index("ticker").join(ma_data, how="left").reset_index()
 
         ma_excluded = original_count - len(filtered_df)
         logger.info(f"MA Filter: Excluded {ma_excluded} stocks, {len(filtered_df)} remaining")
@@ -289,6 +305,8 @@ def apply_all_filters(momentum_df: pd.DataFrame, stock_data: pd.DataFrame,
     final_count = len(filtered_df)
     total_excluded = original_count - final_count
 
-    logger.info(f"All Filters Applied: {total_excluded} stocks excluded, {final_count} stocks passed all filters")
+    logger.info(
+        f"All Filters Applied: {total_excluded} stocks excluded, {final_count} stocks passed all filters"
+    )
 
     return filtered_df

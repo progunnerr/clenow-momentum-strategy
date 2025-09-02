@@ -53,7 +53,7 @@ class TestATR:
 
     def create_sample_ohlc_data(self, periods=30):
         """Create sample OHLC data for testing."""
-        dates = pd.date_range('2024-01-01', periods=periods, freq='D')
+        dates = pd.date_range("2024-01-01", periods=periods, freq="D")
 
         # Create trending data with volatility
         close_prices = np.linspace(100, 120, periods) + np.random.normal(0, 2, periods)
@@ -61,13 +61,16 @@ class TestATR:
         low_prices = close_prices - np.random.uniform(1, 3, periods)
         open_prices = close_prices + np.random.normal(0, 1, periods)
 
-        return pd.DataFrame({
-            'Open': open_prices,
-            'High': high_prices,
-            'Low': low_prices,
-            'Close': close_prices,
-            'Volume': np.random.randint(1000000, 2000000, periods)
-        }, index=dates)
+        return pd.DataFrame(
+            {
+                "Open": open_prices,
+                "High": high_prices,
+                "Low": low_prices,
+                "Close": close_prices,
+                "Volume": np.random.randint(1000000, 2000000, periods),
+            },
+            index=dates,
+        )
 
     def test_calculate_atr(self):
         """Test ATR calculation."""
@@ -87,11 +90,13 @@ class TestATR:
 
     def test_atr_missing_columns(self):
         """Test ATR calculation with missing required columns."""
-        data = pd.DataFrame({
-            'Open': [100, 101, 102],
-            'Close': [101, 102, 103]
-            # Missing High and Low
-        })
+        data = pd.DataFrame(
+            {
+                "Open": [100, 101, 102],
+                "Close": [101, 102, 103],
+                # Missing High and Low
+            }
+        )
 
         with pytest.raises(ValueError, match="Data must contain 'High' column"):
             calculate_atr(data)
@@ -102,36 +107,36 @@ class TestATRForUniverse:
 
     def create_sample_multiindex_data(self):
         """Create sample MultiIndex stock data."""
-        dates = pd.date_range('2024-01-01', periods=50, freq='D')
+        dates = pd.date_range("2024-01-01", periods=50, freq="D")
 
         data_dict = {}
 
         # Stock A: Normal volatility
-        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
             base_prices = np.linspace(100, 120, len(dates))
-            if col == 'Volume':
-                data_dict[('STOCK_A', col)] = np.random.randint(1000000, 2000000, len(dates))
-            elif col == 'High':
-                data_dict[('STOCK_A', col)] = base_prices + 2
-            elif col == 'Low':
-                data_dict[('STOCK_A', col)] = base_prices - 2
+            if col == "Volume":
+                data_dict[("STOCK_A", col)] = np.random.randint(1000000, 2000000, len(dates))
+            elif col == "High":
+                data_dict[("STOCK_A", col)] = base_prices + 2
+            elif col == "Low":
+                data_dict[("STOCK_A", col)] = base_prices - 2
             else:
-                data_dict[('STOCK_A', col)] = base_prices + np.random.normal(0, 0.5, len(dates))
+                data_dict[("STOCK_A", col)] = base_prices + np.random.normal(0, 0.5, len(dates))
 
         # Stock B: Higher volatility
-        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
             base_prices = np.linspace(200, 180, len(dates))
-            if col == 'Volume':
-                data_dict[('STOCK_B', col)] = np.random.randint(1000000, 2000000, len(dates))
-            elif col == 'High':
-                data_dict[('STOCK_B', col)] = base_prices + 5  # Higher volatility
-            elif col == 'Low':
-                data_dict[('STOCK_B', col)] = base_prices - 5
+            if col == "Volume":
+                data_dict[("STOCK_B", col)] = np.random.randint(1000000, 2000000, len(dates))
+            elif col == "High":
+                data_dict[("STOCK_B", col)] = base_prices + 5  # Higher volatility
+            elif col == "Low":
+                data_dict[("STOCK_B", col)] = base_prices - 5
             else:
-                data_dict[('STOCK_B', col)] = base_prices + np.random.normal(0, 2, len(dates))
+                data_dict[("STOCK_B", col)] = base_prices + np.random.normal(0, 2, len(dates))
 
         df = pd.DataFrame(data_dict, index=dates)
-        df.columns = pd.MultiIndex.from_tuples(df.columns, names=['Ticker', 'Type'])
+        df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Ticker", "Type"])
 
         return df
 
@@ -142,13 +147,13 @@ class TestATRForUniverse:
         result = calculate_atr_for_universe(data, period=14)
 
         assert not result.empty
-        assert 'ticker' in result.columns
-        assert 'atr' in result.columns
+        assert "ticker" in result.columns
+        assert "atr" in result.columns
         assert len(result) == 2  # Two stocks
 
         # Stock B should have higher ATR (more volatile)
-        stock_a_atr = result[result['ticker'] == 'STOCK_A']['atr'].iloc[0]
-        stock_b_atr = result[result['ticker'] == 'STOCK_B']['atr'].iloc[0]
+        stock_a_atr = result[result["ticker"] == "STOCK_A"]["atr"].iloc[0]
+        stock_b_atr = result[result["ticker"] == "STOCK_B"]["atr"].iloc[0]
 
         assert stock_b_atr > stock_a_atr
 
@@ -159,7 +164,7 @@ class TestPositionSizing:
     def test_calculate_position_size_basic(self):
         """Test basic position size calculation."""
         account_value = 1000000  # $1M
-        risk_per_trade = 0.001   # 0.1%
+        risk_per_trade = 0.001  # 0.1%
         stock_price = 100
         atr = 2  # $2 ATR
 
@@ -167,16 +172,16 @@ class TestPositionSizing:
             account_value=account_value,
             risk_per_trade=risk_per_trade,
             stock_price=stock_price,
-            atr=atr
+            atr=atr,
         )
 
         # Risk amount = $1M * 0.1% = $1,000
         # Stop loss distance = $2 ATR * 3.0 (default multiplier) = $6
         # Shares = $1,000 / $6 = 166 shares (rounded down)
-        assert result['shares'] == 166
-        assert result['investment_amount'] == 16600  # 166 * $100
-        assert result['actual_risk'] == 996  # 166 * $6
-        assert result['limited_by'] == 'risk_limit'
+        assert result["shares"] == 166
+        assert result["investment_amount"] == 16600  # 166 * $100
+        assert result["actual_risk"] == 996  # 166 * $6
+        assert result["limited_by"] == "risk_limit"
 
     def test_position_size_limited_by_max_position(self):
         """Test position sizing limited by maximum position size."""
@@ -191,15 +196,15 @@ class TestPositionSizing:
             risk_per_trade=risk_per_trade,
             stock_price=stock_price,
             atr=atr,
-            max_position_pct=max_position_pct
+            max_position_pct=max_position_pct,
         )
 
         # Risk-based: $1,000 / ($0.5 * 3) = $1,000 / $1.5 = 666 shares
         # Position limit: 5% of $1M = $50,000 = 1,000 shares
         # Since 666 < 1000, it's limited by risk, not position size
-        assert result['shares'] == 666  # Limited by risk
-        assert result['investment_amount'] == 33300  # 666 * $50
-        assert result['limited_by'] == 'risk_limit'  # Actually limited by risk, not position
+        assert result["shares"] == 666  # Limited by risk
+        assert result["investment_amount"] == 33300  # 666 * $50
+        assert result["limited_by"] == "risk_limit"  # Actually limited by risk, not position
 
     def test_position_size_invalid_inputs(self):
         """Test position sizing with invalid inputs."""
@@ -215,34 +220,36 @@ class TestBuildPortfolio:
 
     def create_sample_filtered_stocks(self):
         """Create sample filtered stocks data."""
-        return pd.DataFrame({
-            'ticker': ['AAPL', 'MSFT', 'GOOGL'],
-            'momentum_score': [0.8, 0.7, 0.6],
-            'current_price': [150, 300, 2500],
-            'annualized_slope': [1.2, 1.0, 0.8],
-            'r_squared': [0.85, 0.80, 0.75]
-        })
+        return pd.DataFrame(
+            {
+                "ticker": ["AAPL", "MSFT", "GOOGL"],
+                "momentum_score": [0.8, 0.7, 0.6],
+                "current_price": [150, 300, 2500],
+                "annualized_slope": [1.2, 1.0, 0.8],
+                "r_squared": [0.85, 0.80, 0.75],
+            }
+        )
 
     def create_sample_stock_data_for_portfolio(self):
         """Create sample stock data for portfolio building."""
-        dates = pd.date_range('2024-01-01', periods=30, freq='D')
+        dates = pd.date_range("2024-01-01", periods=30, freq="D")
 
         data_dict = {}
-        for ticker in ['AAPL', 'MSFT', 'GOOGL']:
-            base_price = {'AAPL': 150, 'MSFT': 300, 'GOOGL': 2500}[ticker]
+        for ticker in ["AAPL", "MSFT", "GOOGL"]:
+            base_price = {"AAPL": 150, "MSFT": 300, "GOOGL": 2500}[ticker]
 
-            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                if col == 'Volume':
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                if col == "Volume":
                     data_dict[(ticker, col)] = np.random.randint(1000000, 2000000, len(dates))
-                elif col == 'High':
+                elif col == "High":
                     data_dict[(ticker, col)] = [base_price + 2] * len(dates)
-                elif col == 'Low':
+                elif col == "Low":
                     data_dict[(ticker, col)] = [base_price - 2] * len(dates)
                 else:
                     data_dict[(ticker, col)] = [base_price] * len(dates)
 
         df = pd.DataFrame(data_dict, index=dates)
-        df.columns = pd.MultiIndex.from_tuples(df.columns, names=['Ticker', 'Type'])
+        df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Ticker", "Type"])
 
         return df
 
@@ -255,32 +262,29 @@ class TestBuildPortfolio:
             filtered_stocks=filtered_stocks,
             stock_data=stock_data,
             account_value=1000000,
-            risk_per_trade=0.001
+            risk_per_trade=0.001,
         )
 
         assert not portfolio.empty
         assert len(portfolio) == 3  # Three stocks
 
         # Check required columns
-        required_cols = ['ticker', 'shares', 'investment', 'atr', 'actual_risk']
+        required_cols = ["ticker", "shares", "investment", "atr", "actual_risk"]
         for col in required_cols:
             assert col in portfolio.columns
 
         # All positions should have positive shares
-        assert (portfolio['shares'] > 0).all()
+        assert (portfolio["shares"] > 0).all()
 
         # Portfolio should be sorted by investment amount
-        assert portfolio['investment'].is_monotonic_decreasing
+        assert portfolio["investment"].is_monotonic_decreasing
 
     def test_build_portfolio_empty_stocks(self):
         """Test portfolio building with empty stock list."""
         empty_stocks = pd.DataFrame()
         stock_data = self.create_sample_stock_data_for_portfolio()
 
-        portfolio = build_portfolio(
-            filtered_stocks=empty_stocks,
-            stock_data=stock_data
-        )
+        portfolio = build_portfolio(filtered_stocks=empty_stocks, stock_data=stock_data)
 
         assert portfolio.empty
 
@@ -290,41 +294,39 @@ class TestApplyRiskLimits:
 
     def create_sample_portfolio(self):
         """Create sample portfolio for testing."""
-        return pd.DataFrame({
-            'ticker': ['A', 'B', 'C', 'D', 'E'],
-            'shares': [100, 200, 300, 50, 150],
-            'investment': [50000, 40000, 30000, 5000, 25000],  # One below min
-            'atr': [2.5, 2.0, 1.5, 1.0, 3.0],
-            'actual_risk': [250, 400, 450, 50, 450]
-        })
+        return pd.DataFrame(
+            {
+                "ticker": ["A", "B", "C", "D", "E"],
+                "shares": [100, 200, 300, 50, 150],
+                "investment": [50000, 40000, 30000, 5000, 25000],  # One below min
+                "atr": [2.5, 2.0, 1.5, 1.0, 3.0],
+                "actual_risk": [250, 400, 450, 50, 450],
+            }
+        )
 
     def test_apply_risk_limits_max_positions(self):
         """Test maximum position limit."""
         portfolio = self.create_sample_portfolio()
 
         limited_portfolio = apply_risk_limits(
-            portfolio_df=portfolio,
-            max_positions=3,
-            min_position_value=0
+            portfolio_df=portfolio, max_positions=3, min_position_value=0
         )
 
         assert len(limited_portfolio) == 3
         # Should keep the 3 largest positions
-        assert limited_portfolio['investment'].tolist() == [50000, 40000, 30000]
+        assert limited_portfolio["investment"].tolist() == [50000, 40000, 30000]
 
     def test_apply_risk_limits_min_position_value(self):
         """Test minimum position value filter."""
         portfolio = self.create_sample_portfolio()
 
         limited_portfolio = apply_risk_limits(
-            portfolio_df=portfolio,
-            max_positions=10,
-            min_position_value=10000
+            portfolio_df=portfolio, max_positions=10, min_position_value=10000
         )
 
         # Should exclude position with $5,000 investment
         assert len(limited_portfolio) == 4
-        assert 5000 not in limited_portfolio['investment'].tolist()
+        assert 5000 not in limited_portfolio["investment"].tolist()
 
     def test_apply_risk_limits_empty_portfolio(self):
         """Test risk limits with empty portfolio."""
@@ -341,22 +343,22 @@ class TestIntegration:
     def test_complete_workflow(self):
         """Test complete risk management workflow."""
         # Create realistic test data
-        dates = pd.date_range('2024-01-01', periods=50, freq='D')
+        dates = pd.date_range("2024-01-01", periods=50, freq="D")
 
         # Create stock data with different volatilities
-        stocks = ['AAPL', 'MSFT', 'GOOGL']
+        stocks = ["AAPL", "MSFT", "GOOGL"]
         data_dict = {}
 
         for i, ticker in enumerate(stocks):
             base_price = 100 + i * 50  # Different price levels
-            volatility = 1 + i * 0.5   # Different volatilities
+            volatility = 1 + i * 0.5  # Different volatilities
 
-            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                if col == 'Volume':
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                if col == "Volume":
                     data_dict[(ticker, col)] = np.random.randint(1000000, 2000000, len(dates))
-                elif col == 'High':
+                elif col == "High":
                     data_dict[(ticker, col)] = [base_price + volatility] * len(dates)
-                elif col == 'Low':
+                elif col == "Low":
                     data_dict[(ticker, col)] = [base_price - volatility] * len(dates)
                 else:
                     data_dict[(ticker, col)] = [base_price] * len(dates)
@@ -365,18 +367,16 @@ class TestIntegration:
         stock_data.columns = pd.MultiIndex.from_tuples(stock_data.columns)
 
         # Create filtered stocks
-        filtered_stocks = pd.DataFrame({
-            'ticker': stocks,
-            'momentum_score': [0.8, 0.7, 0.6],
-            'current_price': [100, 150, 200]
-        })
+        filtered_stocks = pd.DataFrame(
+            {"ticker": stocks, "momentum_score": [0.8, 0.7, 0.6], "current_price": [100, 150, 200]}
+        )
 
         # Build portfolio
         portfolio = build_portfolio(
             filtered_stocks=filtered_stocks,
             stock_data=stock_data,
             account_value=1000000,
-            risk_per_trade=0.001
+            risk_per_trade=0.001,
         )
 
         # Apply risk limits
@@ -387,7 +387,7 @@ class TestIntegration:
         assert len(final_portfolio) <= 3
 
         # Each position should risk approximately the same amount
-        risks = final_portfolio['actual_risk'].tolist()
+        risks = final_portfolio["actual_risk"].tolist()
         risk_target = 1000  # 0.1% of $1M
 
         for risk in risks:
@@ -410,11 +410,11 @@ class TestEdgeCases:
             account_value=1000000,
             risk_per_trade=0.001,
             stock_price=100,
-            atr=50  # Very high ATR
+            atr=50,  # Very high ATR
         )
 
         # Should result in small position
         # Stop loss distance = $50 ATR * 3.0 = $150
         # Shares = $1000 / $150 = 6.66 -> 6 shares (rounded down)
-        assert result['shares'] == 6  # $1000 / ($50 ATR * 3)
-        assert result['investment_amount'] == 600  # 6 * $100
+        assert result["shares"] == 6  # $1000 / ($50 ATR * 3)
+        assert result["investment_amount"] == 600  # 6 * $100

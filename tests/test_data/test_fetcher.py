@@ -39,6 +39,7 @@ class TestGetSP500Tickers:
     def test_request_exception(self, mock_requests, mock_yfinance):
         """Test handling of request exceptions - should fallback to yfinance."""
         import requests
+
         mock_requests.side_effect = requests.RequestException("Network error")
         mock_yfinance.return_value = ["AAPL", "MSFT"]  # Fallback returns some tickers
 

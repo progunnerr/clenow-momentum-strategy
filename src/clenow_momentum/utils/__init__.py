@@ -20,7 +20,7 @@ logger.remove()  # Remove default handler
 logger.add(
     sys.stderr,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO"
+    level="INFO",
 )
 
 # Add file handler with rotation
@@ -30,7 +30,7 @@ logger.add(
     level="DEBUG",
     rotation="1 day",
     retention="7 days",
-    compression="zip"
+    compression="zip",
 )
 
 # Export the configured logger

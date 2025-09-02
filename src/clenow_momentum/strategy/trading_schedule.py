@@ -212,13 +212,9 @@ def get_next_rebalancing_date(from_date: datetime | None = None) -> datetime:
     for _ in range(6):
         # If we're before the first Wednesday of a rebalancing month, return it
         if is_rebalancing_month(current_date):
-            first_wednesday = get_first_wednesday_of_month(
-                current_date.year, current_date.month
-            )
+            first_wednesday = get_first_wednesday_of_month(current_date.year, current_date.month)
             if first_wednesday.date() > from_date.date():
-                logger.debug(
-                    f"Next rebalancing date: {first_wednesday.strftime('%Y-%m-%d')}"
-                )
+                logger.debug(f"Next rebalancing date: {first_wednesday.strftime('%Y-%m-%d')}")
                 return first_wednesday
 
         # Move to next month
@@ -231,9 +227,7 @@ def get_next_rebalancing_date(from_date: datetime | None = None) -> datetime:
 
 
 def get_rebalancing_schedule(
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
-    num_periods: int = 6
+    start_date: datetime | None = None, end_date: datetime | None = None, num_periods: int = 6
 ) -> pd.DataFrame:
     """
     Generate a rebalancing schedule for the specified period.
@@ -259,13 +253,15 @@ def get_rebalancing_schedule(
         if end_date and next_date > end_date:
             break
 
-        rebalancing_dates.append({
-            'rebalancing_date': next_date,
-            'year': next_date.year,
-            'month': next_date.month,
-            'month_name': next_date.strftime('%B'),
-            'weekday': next_date.strftime('%A'),
-        })
+        rebalancing_dates.append(
+            {
+                "rebalancing_date": next_date,
+                "year": next_date.year,
+                "month": next_date.month,
+                "month_name": next_date.strftime("%B"),
+                "weekday": next_date.strftime("%A"),
+            }
+        )
 
         current_date = next_date
 
@@ -274,11 +270,11 @@ def get_rebalancing_schedule(
         return pd.DataFrame()
 
     schedule_df = pd.DataFrame(rebalancing_dates)
-    schedule_df['rebalancing_number'] = range(1, len(schedule_df) + 1)
+    schedule_df["rebalancing_number"] = range(1, len(schedule_df) + 1)
 
     # Calculate days until each rebalancing
     today = datetime.now(UTC)
-    schedule_df['days_until'] = schedule_df['rebalancing_date'].apply(
+    schedule_df["days_until"] = schedule_df["rebalancing_date"].apply(
         lambda x: (x.date() - today.date()).days
     )
 
@@ -300,31 +296,35 @@ def get_trading_calendar_summary(bypass_wednesday: bool = False) -> dict:
     now = datetime.now(UTC)
 
     summary = {
-        'current_date': now.strftime('%Y-%m-%d'),
-        'current_weekday': now.strftime('%A'),
-        'is_trading_day': is_trading_day(now, bypass_wednesday),
-        'is_rebalancing_day': is_rebalancing_day(now, bypass_wednesday),
-        'next_trading_day': get_next_trading_day(now).strftime('%Y-%m-%d') if not bypass_wednesday else now.strftime('%Y-%m-%d'),
-        'next_rebalancing_date': get_next_rebalancing_date(now).strftime('%Y-%m-%d'),
-        'rebalancing_months': get_rebalancing_months(),
-        'bypass_active': bypass_wednesday
+        "current_date": now.strftime("%Y-%m-%d"),
+        "current_weekday": now.strftime("%A"),
+        "is_trading_day": is_trading_day(now, bypass_wednesday),
+        "is_rebalancing_day": is_rebalancing_day(now, bypass_wednesday),
+        "next_trading_day": get_next_trading_day(now).strftime("%Y-%m-%d")
+        if not bypass_wednesday
+        else now.strftime("%Y-%m-%d"),
+        "next_rebalancing_date": get_next_rebalancing_date(now).strftime("%Y-%m-%d"),
+        "rebalancing_months": get_rebalancing_months(),
+        "bypass_active": bypass_wednesday,
     }
 
     # Calculate days until events
     if not bypass_wednesday:
         next_trading = get_next_trading_day(now)
         next_rebalancing = get_next_rebalancing_date(now)
-        summary['days_until_next_trading'] = (next_trading.date() - now.date()).days
-        summary['days_until_next_rebalancing'] = (next_rebalancing.date() - now.date()).days
+        summary["days_until_next_trading"] = (next_trading.date() - now.date()).days
+        summary["days_until_next_rebalancing"] = (next_rebalancing.date() - now.date()).days
     else:
-        summary['days_until_next_trading'] = 0
+        summary["days_until_next_trading"] = 0
         next_rebalancing = get_next_rebalancing_date(now)
-        summary['days_until_next_rebalancing'] = (next_rebalancing.date() - now.date()).days
+        summary["days_until_next_rebalancing"] = (next_rebalancing.date() - now.date()).days
 
     return summary
 
 
-def should_execute_trades(date: datetime | None = None, bypass_wednesday: bool = False) -> tuple[bool, str]:
+def should_execute_trades(
+    date: datetime | None = None, bypass_wednesday: bool = False
+) -> tuple[bool, str]:
     """
     Determine if trades should be executed on the given date.
 

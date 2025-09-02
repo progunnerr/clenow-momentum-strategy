@@ -33,7 +33,7 @@ class TestPosition:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
 
         assert pos.ticker == "AAPL"
@@ -50,7 +50,7 @@ class TestPosition:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
 
         assert pos.market_value == 16000.0  # 100 * 160
@@ -80,7 +80,7 @@ class TestPortfolio:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
 
         pos2 = Position(
@@ -89,7 +89,7 @@ class TestPortfolio:
             entry_price=300.0,
             current_price=310.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=8.0
+            atr=8.0,
         )
 
         portfolio.add_position(pos1)
@@ -110,16 +110,16 @@ class TestPortfolio:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
 
         portfolio.add_position(pos)
         df = portfolio.to_dataframe()
 
         assert len(df) == 1
-        assert df.iloc[0]['ticker'] == "AAPL"
-        assert df.iloc[0]['shares'] == 100
-        assert df.iloc[0]['market_value'] == 16000.0
+        assert df.iloc[0]["ticker"] == "AAPL"
+        assert df.iloc[0]["shares"] == 100
+        assert df.iloc[0]["market_value"] == 16000.0
 
 
 class TestRebalancingOrder:
@@ -134,7 +134,7 @@ class TestRebalancingOrder:
             current_price=150.0,
             order_value=15000.0,
             reason="New position",
-            priority=1
+            priority=1,
         )
 
         assert order.ticker == "AAPL"
@@ -151,14 +151,14 @@ class TestRebalancingOrder:
             shares=50,
             current_price=160.0,
             order_value=8000.0,
-            reason="Reduce position"
+            reason="Reduce position",
         )
 
         order_dict = order.to_dict()
-        assert order_dict['ticker'] == "AAPL"
-        assert order_dict['order_type'] == "SELL"
-        assert order_dict['shares'] == 50
-        assert order_dict['status'] == "PENDING"
+        assert order_dict["ticker"] == "AAPL"
+        assert order_dict["order_type"] == "SELL"
+        assert order_dict["shares"] == 50
+        assert order_dict["status"] == "PENDING"
 
 
 class TestPortfolioPersistence:
@@ -177,7 +177,7 @@ class TestPortfolioPersistence:
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
             atr=5.0,
-            stop_loss=145.0
+            stop_loss=145.0,
         )
 
         pos2 = Position(
@@ -186,7 +186,7 @@ class TestPortfolioPersistence:
             entry_price=300.0,
             current_price=310.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=8.0
+            atr=8.0,
         )
 
         portfolio.add_position(pos1)
@@ -230,22 +230,24 @@ class TestTargetWeights:
     def test_calculate_target_weights(self):
         """Test calculating target portfolio weights."""
         # Create sample momentum stocks
-        momentum_df = pd.DataFrame({
-            'ticker': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA'],
-            'momentum_score': [2.5, 2.3, 2.1, 1.9, 1.7]
-        })
+        momentum_df = pd.DataFrame(
+            {
+                "ticker": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"],
+                "momentum_score": [2.5, 2.3, 2.1, 1.9, 1.7],
+            }
+        )
 
         # Calculate weights for top 3
         target = calculate_target_weights(momentum_df, max_positions=3)
 
         assert len(target) == 3
-        assert target['ticker'].tolist() == ['AAPL', 'MSFT', 'GOOGL']
+        assert target["ticker"].tolist() == ["AAPL", "MSFT", "GOOGL"]
 
         # Check equal weighting
         expected_weight = 1.0 / 3
         for _, row in target.iterrows():
-            assert row['target_weight'] == pytest.approx(expected_weight)
-            assert row['target_value_pct'] == pytest.approx(expected_weight * 100)
+            assert row["target_weight"] == pytest.approx(expected_weight)
+            assert row["target_value_pct"] == pytest.approx(expected_weight * 100)
 
     def test_calculate_target_weights_empty(self):
         """Test with empty momentum stocks."""
@@ -268,7 +270,7 @@ class TestRebalancingOrders:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
 
         pos2 = Position(
@@ -277,25 +279,25 @@ class TestRebalancingOrders:
             entry_price=300.0,
             current_price=310.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=8.0
+            atr=8.0,
         )
 
         portfolio.add_position(pos1)
         portfolio.add_position(pos2)
 
         # Target portfolio with only GOOGL (exit AAPL and MSFT)
-        target_df = pd.DataFrame({
-            'ticker': ['GOOGL'],
-            'current_price': [2800.0],
-            'shares': [10],
-            'investment': [28000.0]
-        })
+        target_df = pd.DataFrame(
+            {
+                "ticker": ["GOOGL"],
+                "current_price": [2800.0],
+                "shares": [10],
+                "investment": [28000.0],
+            }
+        )
 
         stock_data = pd.DataFrame()  # Not used in this test
 
-        orders = generate_rebalancing_orders(
-            portfolio, target_df, stock_data, account_value=100000
-        )
+        orders = generate_rebalancing_orders(portfolio, target_df, stock_data, account_value=100000)
 
         # Should have 2 sell orders
         sell_orders = [o for o in orders if o.order_type == OrderType.SELL]
@@ -303,15 +305,15 @@ class TestRebalancingOrders:
 
         # Check sell orders
         tickers_to_sell = {o.ticker for o in sell_orders}
-        assert tickers_to_sell == {'AAPL', 'MSFT'}
+        assert tickers_to_sell == {"AAPL", "MSFT"}
 
         # AAPL sell order
-        aapl_order = next(o for o in sell_orders if o.ticker == 'AAPL')
+        aapl_order = next(o for o in sell_orders if o.ticker == "AAPL")
         assert aapl_order.shares == 100
         assert aapl_order.order_value == 16000.0
 
         # MSFT sell order
-        msft_order = next(o for o in sell_orders if o.ticker == 'MSFT')
+        msft_order = next(o for o in sell_orders if o.ticker == "MSFT")
         assert msft_order.shares == 50
         assert msft_order.order_value == 15500.0
 
@@ -321,18 +323,18 @@ class TestRebalancingOrders:
         portfolio = Portfolio(cash=100000.0)
 
         # Target portfolio with 2 new positions
-        target_df = pd.DataFrame({
-            'ticker': ['AAPL', 'MSFT'],
-            'current_price': [160.0, 310.0],
-            'shares': [100, 50],
-            'investment': [16000.0, 15500.0]
-        })
+        target_df = pd.DataFrame(
+            {
+                "ticker": ["AAPL", "MSFT"],
+                "current_price": [160.0, 310.0],
+                "shares": [100, 50],
+                "investment": [16000.0, 15500.0],
+            }
+        )
 
         stock_data = pd.DataFrame()
 
-        orders = generate_rebalancing_orders(
-            portfolio, target_df, stock_data, account_value=100000
-        )
+        orders = generate_rebalancing_orders(portfolio, target_df, stock_data, account_value=100000)
 
         # Should have 2 buy orders
         buy_orders = [o for o in orders if o.order_type == OrderType.BUY]
@@ -340,14 +342,14 @@ class TestRebalancingOrders:
 
         # Check buy orders
         tickers_to_buy = {o.ticker for o in buy_orders}
-        assert tickers_to_buy == {'AAPL', 'MSFT'}
+        assert tickers_to_buy == {"AAPL", "MSFT"}
 
         # Check order values
-        aapl_order = next(o for o in buy_orders if o.ticker == 'AAPL')
+        aapl_order = next(o for o in buy_orders if o.ticker == "AAPL")
         assert aapl_order.shares == 100
         assert aapl_order.order_value == 16000.0
 
-        msft_order = next(o for o in buy_orders if o.ticker == 'MSFT')
+        msft_order = next(o for o in buy_orders if o.ticker == "MSFT")
         assert msft_order.shares == 50
         assert msft_order.order_value == 15500.0
 
@@ -362,24 +364,24 @@ class TestRebalancingOrders:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
 
         portfolio.add_position(pos1)
 
         # Target: Keep AAPL (reduced), add MSFT, remove others
-        target_df = pd.DataFrame({
-            'ticker': ['AAPL', 'MSFT'],
-            'current_price': [160.0, 310.0],
-            'shares': [50, 50],  # Reduce AAPL from 100 to 50
-            'investment': [8000.0, 15500.0]
-        })
+        target_df = pd.DataFrame(
+            {
+                "ticker": ["AAPL", "MSFT"],
+                "current_price": [160.0, 310.0],
+                "shares": [50, 50],  # Reduce AAPL from 100 to 50
+                "investment": [8000.0, 15500.0],
+            }
+        )
 
         stock_data = pd.DataFrame()
 
-        orders = generate_rebalancing_orders(
-            portfolio, target_df, stock_data, account_value=100000
-        )
+        orders = generate_rebalancing_orders(portfolio, target_df, stock_data, account_value=100000)
 
         # Should have 1 sell (reduce AAPL) and 1 buy (new MSFT)
         sell_orders = [o for o in orders if o.order_type == OrderType.SELL]
@@ -390,12 +392,12 @@ class TestRebalancingOrders:
 
         # Check AAPL reduction
         aapl_sell = sell_orders[0]
-        assert aapl_sell.ticker == 'AAPL'
+        assert aapl_sell.ticker == "AAPL"
         assert aapl_sell.shares == 50  # Sell 50 to go from 100 to 50
 
         # Check MSFT addition
         msft_buy = buy_orders[0]
-        assert msft_buy.ticker == 'MSFT'
+        assert msft_buy.ticker == "MSFT"
         assert msft_buy.shares == 50
 
 
@@ -413,7 +415,7 @@ class TestRebalancingSummary:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
         portfolio.add_position(pos)
 
@@ -424,7 +426,7 @@ class TestRebalancingSummary:
                 shares=100,
                 current_price=160.0,
                 order_value=16000.0,
-                reason="Exit"
+                reason="Exit",
             ),
             RebalancingOrder(
                 ticker="MSFT",
@@ -432,27 +434,24 @@ class TestRebalancingSummary:
                 shares=50,
                 current_price=310.0,
                 order_value=15500.0,
-                reason="New"
-            )
+                reason="New",
+            ),
         ]
 
-        target_df = pd.DataFrame({
-            'ticker': ['MSFT'],
-            'shares': [50]
-        })
+        target_df = pd.DataFrame({"ticker": ["MSFT"], "shares": [50]})
 
         summary = create_rebalancing_summary(portfolio, orders, target_df)
 
-        assert summary['current_positions'] == 1
-        assert summary['target_positions'] == 1
-        assert summary['num_orders'] == 2
-        assert summary['num_sells'] == 1
-        assert summary['num_buys'] == 1
-        assert summary['total_sell_value'] == 16000.0
-        assert summary['total_buy_value'] == 15500.0
-        assert summary['expected_cash'] == 20500.0  # 20000 + 16000 - 15500
-        assert summary['positions_to_remove'] == ['AAPL']
-        assert summary['positions_to_add'] == ['MSFT']
+        assert summary["current_positions"] == 1
+        assert summary["target_positions"] == 1
+        assert summary["num_orders"] == 2
+        assert summary["num_sells"] == 1
+        assert summary["num_buys"] == 1
+        assert summary["total_sell_value"] == 16000.0
+        assert summary["total_buy_value"] == 15500.0
+        assert summary["expected_cash"] == 20500.0  # 20000 + 16000 - 15500
+        assert summary["positions_to_remove"] == ["AAPL"]
+        assert summary["positions_to_add"] == ["MSFT"]
 
 
 class TestRebalancingSimulation:
@@ -469,7 +468,7 @@ class TestRebalancingSimulation:
             entry_price=150.0,
             current_price=160.0,
             entry_date=datetime(2025, 1, 1, tzinfo=UTC),
-            atr=5.0
+            atr=5.0,
         )
         portfolio.add_position(pos)
 
@@ -481,7 +480,7 @@ class TestRebalancingSimulation:
                 shares=50,  # Partial sell
                 current_price=160.0,
                 order_value=8000.0,
-                reason="Reduce"
+                reason="Reduce",
             ),
             RebalancingOrder(
                 ticker="MSFT",
@@ -489,8 +488,8 @@ class TestRebalancingSimulation:
                 shares=30,
                 current_price=310.0,
                 order_value=9300.0,
-                reason="New"
-            )
+                reason="New",
+            ),
         ]
 
         stock_data = pd.DataFrame()  # Not used
@@ -503,9 +502,9 @@ class TestRebalancingSimulation:
         assert new_portfolio.cash == pytest.approx(18700.0)  # 20000 + 8000 - 9300
 
         # Check AAPL position (reduced)
-        assert new_portfolio.positions['AAPL'].shares == 50
+        assert new_portfolio.positions["AAPL"].shares == 50
 
         # Check MSFT position (new)
-        assert 'MSFT' in new_portfolio.positions
-        assert new_portfolio.positions['MSFT'].shares == 30
-        assert new_portfolio.positions['MSFT'].entry_price == 310.0
+        assert "MSFT" in new_portfolio.positions
+        assert new_portfolio.positions["MSFT"].shares == 30
+        assert new_portfolio.positions["MSFT"].entry_price == 310.0

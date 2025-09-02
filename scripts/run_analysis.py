@@ -43,7 +43,7 @@ def print_trading_schedule_status(config):
     print("TRADING SCHEDULE STATUS")
     print("-" * 30)
 
-    bypass_wednesday = config.get('bypass_wednesday_check', False)
+    bypass_wednesday = config.get("bypass_wednesday_check", False)
     calendar_summary = get_trading_calendar_summary(bypass_wednesday)
     can_trade, trade_reason = should_execute_trades(bypass_wednesday=bypass_wednesday)
 
@@ -55,9 +55,13 @@ def print_trading_schedule_status(config):
     print(f"📊 Trading Status: {trade_reason}")
 
     if not can_trade:
-        print(f"\n⏭️  Next Trading Day: {calendar_summary['next_trading_day']} (in {calendar_summary['days_until_next_trading']} days)")
+        print(
+            f"\n⏭️  Next Trading Day: {calendar_summary['next_trading_day']} (in {calendar_summary['days_until_next_trading']} days)"
+        )
 
-    print(f"🔄 Next Rebalancing: {calendar_summary['next_rebalancing_date']} (in {calendar_summary['days_until_next_rebalancing']} days)")
+    print(
+        f"🔄 Next Rebalancing: {calendar_summary['next_rebalancing_date']} (in {calendar_summary['days_until_next_rebalancing']} days)"
+    )
     print()
 
     return calendar_summary, can_trade, trade_reason
@@ -65,12 +69,16 @@ def print_trading_schedule_status(config):
 
 def print_account_sizing(config):
     """Print account and position sizing information."""
-    sizing_guide = get_position_sizing_guide(config['account_value'])
+    sizing_guide = get_position_sizing_guide(config["account_value"])
     print("ACCOUNT & POSITION SIZING")
     print("-" * 30)
     print(f"💰 Account Value: ${config['account_value']:,.0f}")
-    print(f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${sizing_guide['risk_per_trade_dollars']:,.0f})")
-    print(f"📊 Target Positions: {sizing_guide['recommended_positions']} ({sizing_guide['risk_level']})")
+    print(
+        f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${sizing_guide['risk_per_trade_dollars']:,.0f})"
+    )
+    print(
+        f"📊 Target Positions: {sizing_guide['recommended_positions']} ({sizing_guide['risk_level']})"
+    )
     print(f"⚖️  Min Position Size: ${config['min_position_value']:,.0f}")
 
     # Show any configuration warnings
@@ -105,7 +113,7 @@ def fetch_and_process_data(tickers, config):
 
     # Calculate momentum scores
     print(f"Step 3: Calculating momentum scores ({config['momentum_period']}-day period)...")
-    momentum_df = calculate_momentum_for_universe(stock_data, period=config['momentum_period'])
+    momentum_df = calculate_momentum_for_universe(stock_data, period=config["momentum_period"])
 
     valid_scores = momentum_df.dropna(subset=["momentum_score"])
     print(f"✅ Calculated momentum for {len(valid_scores)} stocks")
@@ -120,27 +128,33 @@ def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
 
     if trading_allowed:
         # Filter the entire universe of stocks with valid momentum scores
-        stocks_to_filter = momentum_df.dropna(subset=['momentum_score'])
-        print(f"🔍 Applying filters to all {len(stocks_to_filter)} stocks with valid momentum scores...")
+        stocks_to_filter = momentum_df.dropna(subset=["momentum_score"])
+        print(
+            f"🔍 Applying filters to all {len(stocks_to_filter)} stocks with valid momentum scores..."
+        )
         filtered_stocks = apply_all_filters(
             stocks_to_filter,
             stock_data,
-            ma_period=config['ma_filter_period'],
-            gap_threshold=config['gap_threshold']
+            ma_period=config["ma_filter_period"],
+            gap_threshold=config["gap_threshold"],
         )
 
         print(f"✅ {len(filtered_stocks)} stocks passed all filters.")
 
         # For efficiency, select top stocks for portfolio construction before sizing
-        stocks_for_portfolio = filtered_stocks.head(config['max_positions'])
-        print(f"📈 Selecting top {len(stocks_for_portfolio)} momentum stocks for portfolio (max_positions: {config['max_positions']}).")
+        stocks_for_portfolio = filtered_stocks.head(config["max_positions"])
+        print(
+            f"📈 Selecting top {len(stocks_for_portfolio)} momentum stocks for portfolio (max_positions: {config['max_positions']})."
+        )
 
         final_stocks = filtered_stocks  # Keep all filtered stocks for display
     else:
         print("⛔ Market regime not favorable - skipping individual stock filters")
-        print(f"📊 Showing top {config['top_momentum_pct']:.0%} momentum rankings for informational purposes only...")
+        print(
+            f"📊 Showing top {config['top_momentum_pct']:.0%} momentum rankings for informational purposes only..."
+        )
         # For informational purposes, show the top 20% unfiltered
-        final_stocks = get_top_momentum_stocks(momentum_df, top_pct=config['top_momentum_pct'])
+        final_stocks = get_top_momentum_stocks(momentum_df, top_pct=config["top_momentum_pct"])
 
     return stocks_for_portfolio, final_stocks
 
@@ -153,27 +167,39 @@ def display_portfolio_table(portfolio_df, config):
     # Prepare portfolio table data
     table_data = []
     for _, row in portfolio_df.iterrows():
-        table_data.append([
-            int(row["portfolio_rank"]),
-            row["ticker"],
-            f"{row['momentum_score']:.3f}",
-            f"${row['current_price']:.2f}",
-            f"${row['atr']:.2f}",
-            int(row['shares']),
-            f"${row['investment']:,.0f}",
-            f"{row['position_pct']:.1%}",
-            f"${row['actual_risk']:,.0f}"
-        ])
+        table_data.append(
+            [
+                int(row["portfolio_rank"]),
+                row["ticker"],
+                f"{row['momentum_score']:.3f}",
+                f"${row['current_price']:.2f}",
+                f"${row['atr']:.2f}",
+                int(row["shares"]),
+                f"${row['investment']:,.0f}",
+                f"{row['position_pct']:.1%}",
+                f"${row['actual_risk']:,.0f}",
+            ]
+        )
 
-    headers = ["Rank", "Ticker", "Momentum", "Price", "ATR", "Shares", "Investment", "% Port", "Risk $"]
+    headers = [
+        "Rank",
+        "Ticker",
+        "Momentum",
+        "Price",
+        "ATR",
+        "Shares",
+        "Investment",
+        "% Port",
+        "Risk $",
+    ]
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
     print()
 
     # Portfolio summary
-    total_investment = portfolio_df['investment'].sum()
+    total_investment = portfolio_df["investment"].sum()
     total_positions = len(portfolio_df)
     avg_position = total_investment / total_positions
-    total_risk = portfolio_df['actual_risk'].sum()
+    total_risk = portfolio_df["actual_risk"].sum()
 
     print("PORTFOLIO SUMMARY")
     print("-" * 50)
@@ -181,10 +207,12 @@ def display_portfolio_table(portfolio_df, config):
     print(f"📊 Total Positions: {total_positions}")
     print(f"💼 Total Investment: ${total_investment:,.0f}")
     print(f"💵 Cash Remaining: ${config['account_value'] - total_investment:,.0f}")
-    print(f"📈 Capital Utilization: {total_investment/config['account_value']:.1%}")
+    print(f"📈 Capital Utilization: {total_investment / config['account_value']:.1%}")
     print(f"⚖️  Average Position: ${avg_position:,.0f}")
     print(f"⚠️  Total Portfolio Risk: ${total_risk:,.0f}")
-    print(f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['account_value'] * config['risk_per_trade']:,.0f})")
+    print(
+        f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['account_value'] * config['risk_per_trade']:,.0f})"
+    )
 
 
 def display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime):
@@ -192,22 +220,26 @@ def display_stocks_table(final_stocks, config, trading_allowed, valid_scores, ma
     table_data = []
     for i, (_, row) in enumerate(final_stocks.iterrows()):
         # Check if we have filter data (MA info)
-        if 'latest_price' in row and not pd.isna(row['latest_price']):
-            price_val = row['latest_price']
-            ma_info = f" (vs MA: {row.get('price_vs_ma', 0):+.1%})" if 'price_vs_ma' in row else ""
+        if "latest_price" in row and not pd.isna(row["latest_price"]):
+            price_val = row["latest_price"]
+            ma_info = f" (vs MA: {row.get('price_vs_ma', 0):+.1%})" if "price_vs_ma" in row else ""
         else:
-            price_val = row.get('current_price', 0)
+            price_val = row.get("current_price", 0)
             ma_info = ""
 
-        table_data.append([
-            i + 1,  # Re-rank after filtering
-            row["ticker"],
-            f"{row['momentum_score']:.3f}",
-            f"{row['annualized_slope']:.3f}",
-            f"{row['r_squared']:.3f}",
-            f"${price_val:.2f}{ma_info}" if not pd.isna(price_val) else "N/A",
-            f"{row['period_return_pct']:+.1f}%" if not pd.isna(row["period_return_pct"]) else "N/A",
-        ])
+        table_data.append(
+            [
+                i + 1,  # Re-rank after filtering
+                row["ticker"],
+                f"{row['momentum_score']:.3f}",
+                f"{row['annualized_slope']:.3f}",
+                f"{row['r_squared']:.3f}",
+                f"${price_val:.2f}{ma_info}" if not pd.isna(price_val) else "N/A",
+                f"{row['period_return_pct']:+.1f}%"
+                if not pd.isna(row["period_return_pct"])
+                else "N/A",
+            ]
+        )
 
     headers = ["Rank", "Ticker", "Momentum", "Ann. Slope", "R²", "Price", "90d Return"]
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
@@ -276,91 +308,102 @@ def main():
 
     # Step 4: Check market regime with enhanced analysis
     print(f"Step 4: Checking market regime (SPX vs {config['market_regime_period']}-day MA)...")
-    market_regime = check_market_regime(period=config['market_regime_period'])
+    market_regime = check_market_regime(period=config["market_regime_period"])
     trading_allowed, regime_reason = should_trade_momentum(market_regime)
-    
+
     # Get detailed market status
     from clenow_momentum.strategy.market_regime import (
-        get_sp500_ma_status,
-        calculate_market_breadth,
+        analyze_ma_position,
         calculate_absolute_momentum,
         calculate_daily_performance,
+        calculate_market_breadth,
         calculate_short_term_mas,
-        analyze_ma_position
+        get_sp500_ma_status,
     )
-    detailed_status = get_sp500_ma_status(period=config['market_regime_period'])
-    
+
+    detailed_status = get_sp500_ma_status(period=config["market_regime_period"])
+
     # Calculate additional market metrics
     # Pass stock_data to breadth calculation to reuse already fetched data
     breadth_data = calculate_market_breadth(
-        tickers=tickers, 
-        period=config['market_regime_period'],
-        stock_data=stock_data  # Reuse the data we already fetched
+        tickers=tickers,
+        period=config["market_regime_period"],
+        stock_data=stock_data,  # Reuse the data we already fetched
     )
     momentum_data = calculate_absolute_momentum(period_months=12)
-    
+
     # Calculate daily performance and short-term MAs
     daily_perf = calculate_daily_performance()
     short_mas = calculate_short_term_mas()
-    ma_analysis = analyze_ma_position(short_mas, market_regime.get('ma_value'))
+    ma_analysis = analyze_ma_position(short_mas, market_regime.get("ma_value"))
 
     # Display Daily Market Update FIRST
     print("\n" + "=" * 60)
     print("DAILY MARKET UPDATE")
     print("=" * 60)
-    
-    if 'error' not in daily_perf:
+
+    if "error" not in daily_perf:
         # Format daily change with color indicators
-        change_pct = daily_perf.get('daily_change_pct', 0)
+        change_pct = daily_perf.get("daily_change_pct", 0)
         change_emoji = "🟢" if change_pct > 0 else "🔴" if change_pct < 0 else "➖"
         trend_emoji = "📈" if change_pct > 0 else "📉" if change_pct < 0 else "➡️"
-        
-        print(f"{change_emoji} S&P 500 Today: {change_pct:+.2f}% (${daily_perf.get('daily_change', 0):+.2f})")
+
+        print(
+            f"{change_emoji} S&P 500 Today: {change_pct:+.2f}% (${daily_perf.get('daily_change', 0):+.2f})"
+        )
         print(f"   • Current: ${daily_perf.get('current_price', 0):,.2f}")
         print(f"   • Previous Close: ${daily_perf.get('previous_close', 0):,.2f}")
         print(f"   • Trend: {daily_perf.get('daily_trend', 'Unknown')}")
-        
-        if daily_perf.get('five_day_return') is not None:
-            five_day = daily_perf.get('five_day_return', 0)
+
+        if daily_perf.get("five_day_return") is not None:
+            five_day = daily_perf.get("five_day_return", 0)
             five_emoji = "📈" if five_day > 0 else "📉"
             print(f"{five_emoji} 5-Day Performance: {five_day:+.2f}%")
     else:
         print(f"⚠️ Could not fetch daily performance: {daily_perf.get('error', 'Unknown error')}")
-    
+
     # Display Short-term Technical Analysis
-    if 'error' not in ma_analysis:
+    if "error" not in ma_analysis:
         print("\n" + "-" * 40)
         print("SHORT-TERM TECHNICALS")
         print("-" * 40)
-        
+
         # Show position relative to MAs
-        print(f"📊 Market Position: {ma_analysis.get('mas_above', 0)}/{ma_analysis.get('total_mas', 0)} MAs")
-        
+        print(
+            f"📊 Market Position: {ma_analysis.get('mas_above', 0)}/{ma_analysis.get('total_mas', 0)} MAs"
+        )
+
         # Display each MA with distance
-        for ma_name, position, distance in ma_analysis.get('ma_positions', []):
-            symbol = "↑" if position == "above" else "↓"
-            color = "🟢" if position == "above" else "🔴"
-            
+        for ma_name, position, distance in ma_analysis.get("ma_positions", []):
+
             # Get MA value
             ma_value = None
-            if "10-day" in ma_name and '10_ema' in short_mas:
-                ma_value = short_mas['10_ema']
-            elif "20-day" in ma_name and '20_sma' in short_mas:
-                ma_value = short_mas['20_sma']
-            elif "50-day" in ma_name and '50_sma' in short_mas:
-                ma_value = short_mas['50_sma']
+            if "10-day" in ma_name and "10_ema" in short_mas:
+                ma_value = short_mas["10_ema"]
+            elif "20-day" in ma_name and "20_sma" in short_mas:
+                ma_value = short_mas["20_sma"]
+            elif "50-day" in ma_name and "50_sma" in short_mas:
+                ma_value = short_mas["50_sma"]
             elif "200-day" in ma_name:
-                ma_value = ma_analysis.get('200_ma')
-            
+                ma_value = ma_analysis.get("200_ma")
+
             if ma_value:
                 print(f"   • {ma_name}: ${ma_value:,.2f} ({distance:+.1f}% {position})")
-        
+
         # Market structure assessment
-        structure = ma_analysis.get('market_structure', 'Unknown')
-        struct_emoji = "💪" if "Strong Bullish" in structure else "📈" if "Bullish" in structure else "⚖️" if "Mixed" in structure else "📉"
+        structure = ma_analysis.get("market_structure", "Unknown")
+        struct_emoji = (
+            "💪"
+            if "Strong Bullish" in structure
+            else "📈"
+            if "Bullish" in structure
+            else "⚖️"
+            if "Mixed" in structure
+            else "📉"
+        )
         print(f"\n{struct_emoji} Market Structure: {structure}")
-        
-        if ma_analysis.get('mas_aligned'):
+
+        if ma_analysis.get("mas_aligned"):
             print("   ✅ MAs are bullishly aligned (10>20>50>200)")
         else:
             print("   ⚠️ MAs are not aligned")
@@ -368,63 +411,85 @@ def main():
     print("\n" + "=" * 60)
     print("MARKET REGIME ANALYSIS")
     print("=" * 60)
-    
+
     print(f"📊 Market Regime: {market_regime.get('regime', 'unknown').upper()}")
-    print(f"📈 SPX: ${market_regime.get('current_price', 'N/A'):,.2f} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A'):,.2f}")
-    
-    if market_regime.get('price_vs_ma') is not None:
-        price_vs_ma_pct = market_regime.get('price_vs_ma') * 100
+    print(
+        f"📈 SPX: ${market_regime.get('current_price', 'N/A'):,.2f} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A'):,.2f}"
+    )
+
+    if market_regime.get("price_vs_ma") is not None:
+        price_vs_ma_pct = market_regime.get("price_vs_ma") * 100
         print(f"📍 Distance from MA: {price_vs_ma_pct:+.2f}%")
-    
+
     print(f"🎯 Trading Status: {'✅ ALLOWED' if trading_allowed else '⛔ SUSPENDED'}")
     print(f"📝 Reason: {regime_reason}")
-    
+
     # Display enhanced market metrics if available
-    if 'error' not in detailed_status:
+    if "error" not in detailed_status:
         print("\n" + "-" * 40)
         print("REGIME HISTORY & METRICS")
         print("-" * 40)
-        
+
         # Current regime information
         print(f"🏛️ Current Regime: {detailed_status.get('regime_type', 'Unknown')}")
-        print(f"📅 S&P 500 {detailed_status.get('crossover_type', '')} {config['market_regime_period']}MA on: {detailed_status.get('crossover_date', 'N/A')}")
-        print(f"⏱️ Days in {detailed_status.get('regime_type', 'regime')}: {detailed_status.get('days_since_crossover', 0)} days")
-        print(f"📊 Consecutive days {('above' if detailed_status.get('above_ma') else 'below')} MA: {detailed_status.get('consecutive_days_current_regime', 0)} days")
-        
+        print(
+            f"📅 S&P 500 {detailed_status.get('crossover_type', '')} {config['market_regime_period']}MA on: {detailed_status.get('crossover_date', 'N/A')}"
+        )
+        print(
+            f"⏱️ Days in {detailed_status.get('regime_type', 'regime')}: {detailed_status.get('days_since_crossover', 0)} days"
+        )
+        print(
+            f"📊 Consecutive days {('above' if detailed_status.get('above_ma') else 'below')} MA: {detailed_status.get('consecutive_days_current_regime', 0)} days"
+        )
+
         # Distance metrics
-        print(f"\n📈 Distance from MA Statistics (since {detailed_status.get('crossover_date', 'N/A')}):")
+        print(
+            f"\n📈 Distance from MA Statistics (since {detailed_status.get('crossover_date', 'N/A')}):"
+        )
         print(f"   • Current: {detailed_status.get('price_vs_ma_pct', 0):+.2f}%")
         print(f"   • Maximum: {detailed_status.get('max_distance_from_ma_pct', 0):+.2f}%")
         print(f"   • Minimum: {detailed_status.get('min_distance_from_ma_pct', 0):+.2f}%")
         print(f"   • Average: {detailed_status.get('avg_distance_from_ma_pct', 0):+.2f}%")
-        
+
         # MA trend
-        ma_trend = detailed_status.get('ma_trend', 'unknown')
-        ma_slope = detailed_status.get('ma_slope_10d', 0)
+        ma_trend = detailed_status.get("ma_trend", "unknown")
+        ma_slope = detailed_status.get("ma_slope_10d", 0)
         trend_emoji = "📈" if ma_trend == "rising" else "📉" if ma_trend == "falling" else "➡️"
-        print(f"\n{trend_emoji} {config['market_regime_period']}MA Trend: {ma_trend.capitalize()} (10-day slope: ${ma_slope:.2f}/day)")
-        
+        print(
+            f"\n{trend_emoji} {config['market_regime_period']}MA Trend: {ma_trend.capitalize()} (10-day slope: ${ma_slope:.2f}/day)"
+        )
+
         # Recent behavior
-        print(f"\n📊 Last 30 Days:")
-        print(f"   • Days above {config['market_regime_period']}MA: {detailed_status.get('recent_30d_above_ma', 0)}")
-        print(f"   • Days below {config['market_regime_period']}MA: {detailed_status.get('recent_30d_below_ma', 0)}")
-    
+        print("\n📊 Last 30 Days:")
+        print(
+            f"   • Days above {config['market_regime_period']}MA: {detailed_status.get('recent_30d_above_ma', 0)}"
+        )
+        print(
+            f"   • Days below {config['market_regime_period']}MA: {detailed_status.get('recent_30d_below_ma', 0)}"
+        )
+
     # Display Market Breadth
     print("\n" + "-" * 40)
     print("MARKET BREADTH ANALYSIS")
     print("-" * 40)
-    
-    if 'error' not in breadth_data:
-        breadth_pct = breadth_data.get('breadth_pct', 0)
+
+    if "error" not in breadth_data:
+        breadth_pct = breadth_data.get("breadth_pct", 0)
         breadth_emoji = "🟢" if breadth_pct >= 60 else "🟡" if breadth_pct >= 50 else "🔴"
-        
-        ma_period_used = breadth_data.get('ma_period', config['market_regime_period'])
-        
-        print(f"{breadth_emoji} Market Breadth: {breadth_pct:.1f}% of S&P 500 stocks above {ma_period_used}-day MA")
-        print(f"   • Stocks above MA: {breadth_data.get('above_ma', 0)}/{breadth_data.get('total_checked', 0)}")
+
+        ma_period_used = breadth_data.get("ma_period", config["market_regime_period"])
+
+        print(
+            f"{breadth_emoji} Market Breadth: {breadth_pct:.1f}% of S&P 500 stocks above {ma_period_used}-day MA"
+        )
+        print(
+            f"   • Stocks above MA: {breadth_data.get('above_ma', 0)}/{breadth_data.get('total_checked', 0)}"
+        )
         print(f"   • Breadth Strength: {breadth_data.get('breadth_strength', 'Unknown')}")
-        print(f"   • Coverage: {breadth_data.get('total_checked', 0)}/{breadth_data.get('sample_size', 0)} stocks with valid data")
-        
+        print(
+            f"   • Coverage: {breadth_data.get('total_checked', 0)}/{breadth_data.get('sample_size', 0)} stocks with valid data"
+        )
+
         # Breadth interpretation
         if breadth_pct >= 60:
             print("   ✅ Broad participation - Healthy bull market")
@@ -434,83 +499,91 @@ def main():
             print("   ❌ Weak breadth - Bear market conditions")
     else:
         print(f"   ⚠️ Could not calculate breadth: {breadth_data.get('error', 'Unknown error')}")
-    
+
     # Display Absolute Momentum
     print("\n" + "-" * 40)
     print("ABSOLUTE MOMENTUM ANALYSIS")
     print("-" * 40)
-    
-    if 'error' not in momentum_data:
-        period_return = momentum_data.get('period_return', 0)
+
+    if "error" not in momentum_data:
+        period_return = momentum_data.get("period_return", 0)
         momentum_emoji = "🚀" if period_return > 10 else "📈" if period_return > 0 else "📉"
-        
+
         print(f"{momentum_emoji} S&P 500 12-Month Return: {period_return:+.2f}%")
         print(f"   • Momentum Strength: {momentum_data.get('momentum_strength', 'Unknown')}")
-        
+
         # Show multiple timeframe returns if available
-        all_returns = momentum_data.get('all_returns', {})
+        all_returns = momentum_data.get("all_returns", {})
         if all_returns:
-            print(f"\n   Returns by Period:")
+            print("\n   Returns by Period:")
             for period, ret in sorted(all_returns.items()):
                 print(f"   • {period:>3}: {ret:+6.2f}%")
-        
+
         # Momentum interpretation
         if period_return > 0:
-            print(f"\n   ✅ Positive absolute momentum - Bull bias confirmed")
+            print("\n   ✅ Positive absolute momentum - Bull bias confirmed")
         else:
-            print(f"\n   ❌ Negative absolute momentum - Bear market conditions")
+            print("\n   ❌ Negative absolute momentum - Bear market conditions")
     else:
         print(f"   ⚠️ Could not calculate momentum: {momentum_data.get('error', 'Unknown error')}")
-    
+
     # Combined Market Assessment
     print("\n" + "-" * 40)
     print("COMBINED MARKET ASSESSMENT")
     print("-" * 40)
-    
+
     # Count bullish signals
     bullish_signals = 0
     total_signals = 0
-    
+
     # 1. Price vs MA
-    if market_regime.get('regime') == 'bullish':
+    if market_regime.get("regime") == "bullish":
         bullish_signals += 1
     total_signals += 1
-    
+
     # 2. Breadth
-    if 'error' not in breadth_data and breadth_data.get('breadth_pct', 0) >= 50:
+    if "error" not in breadth_data and breadth_data.get("breadth_pct", 0) >= 50:
         bullish_signals += 1
-    if 'error' not in breadth_data:
+    if "error" not in breadth_data:
         total_signals += 1
-    
+
     # 3. Absolute Momentum
-    if 'error' not in momentum_data and momentum_data.get('bullish', False):
+    if "error" not in momentum_data and momentum_data.get("bullish", False):
         bullish_signals += 1
-    if 'error' not in momentum_data:
+    if "error" not in momentum_data:
         total_signals += 1
-    
+
     # Overall assessment
     signal_strength = (bullish_signals / total_signals * 100) if total_signals > 0 else 0
-    
+
     print(f"📊 Bullish Signals: {bullish_signals}/{total_signals} ({signal_strength:.0f}%)")
-    print(f"   • SPX vs 200MA: {'✅ Above' if market_regime.get('regime') == 'bullish' else '❌ Below'}")
-    if 'error' not in breadth_data:
-        print(f"   • Market Breadth: {'✅ Positive' if breadth_data.get('breadth_pct', 0) >= 50 else '❌ Negative'} ({breadth_data.get('breadth_pct', 0):.1f}%)")
-    if 'error' not in momentum_data:
-        print(f"   • Absolute Momentum: {'✅ Positive' if momentum_data.get('bullish', False) else '❌ Negative'} ({momentum_data.get('period_return', 0):+.1f}%)")
-    
+    print(
+        f"   • SPX vs 200MA: {'✅ Above' if market_regime.get('regime') == 'bullish' else '❌ Below'}"
+    )
+    if "error" not in breadth_data:
+        print(
+            f"   • Market Breadth: {'✅ Positive' if breadth_data.get('breadth_pct', 0) >= 50 else '❌ Negative'} ({breadth_data.get('breadth_pct', 0):.1f}%)"
+        )
+    if "error" not in momentum_data:
+        print(
+            f"   • Absolute Momentum: {'✅ Positive' if momentum_data.get('bullish', False) else '❌ Negative'} ({momentum_data.get('period_return', 0):+.1f}%)"
+        )
+
     if signal_strength >= 66:
         print("\n🟢 STRONG BULL MARKET - All systems go for momentum trading")
     elif signal_strength >= 33:
         print("\n🟡 MIXED SIGNALS - Trade with caution, consider reduced position sizes")
     else:
         print("\n🔴 BEAR MARKET CONDITIONS - Consider defensive positioning")
-    
+
     print("=" * 60)
     print()
 
     # Step 5: Apply trading filters to find eligible stocks
     print("Step 5: Applying trading filters...")
-    stocks_for_portfolio, final_stocks = check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed)
+    stocks_for_portfolio, final_stocks = check_and_filter_stocks(
+        momentum_df, stock_data, config, trading_allowed
+    )
     print()
 
     # Step 6: Portfolio Construction (if trading allowed)
@@ -522,20 +595,20 @@ def main():
         portfolio_df = build_portfolio(
             filtered_stocks=stocks_for_portfolio,
             stock_data=stock_data,
-            account_value=config['account_value'],
-            risk_per_trade=config['risk_per_trade'],
-            atr_period=config['atr_period'],
+            account_value=config["account_value"],
+            risk_per_trade=config["risk_per_trade"],
+            atr_period=config["atr_period"],
             allocation_method="equal_risk",
-            stop_loss_multiplier=config['stop_loss_multiplier'],
-            max_position_pct=config['max_position_pct']
+            stop_loss_multiplier=config["stop_loss_multiplier"],
+            max_position_pct=config["max_position_pct"],
         )
 
         if not portfolio_df.empty:
             # Apply minimum position value limit. max_positions is already handled.
             portfolio_df = apply_risk_limits(
                 portfolio_df=portfolio_df,
-                max_positions=None, # Already sliced to max_positions
-                min_position_value=config['min_position_value']
+                max_positions=None,  # Already sliced to max_positions
+                min_position_value=config["min_position_value"],
             )
 
             print(f"✅ Portfolio constructed with {len(portfolio_df)} positions")
@@ -565,7 +638,11 @@ def main():
             display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime)
 
     # Step 8: Rebalancing Analysis (if it's a rebalancing day and we have a portfolio)
-    if calendar_summary['is_rebalancing_day'] and not portfolio_df.empty and config.get('simulate_rebalancing', True):
+    if (
+        calendar_summary["is_rebalancing_day"]
+        and not portfolio_df.empty
+        and config.get("simulate_rebalancing", True)
+    ):
         print()
         print("=" * 60)
         print("🔄 REBALANCING ANALYSIS")
@@ -573,19 +650,22 @@ def main():
 
         # Load current portfolio
         from pathlib import Path
-        portfolio_file = Path(config.get('portfolio_state_file', 'data/portfolio_state.json'))
+
+        portfolio_file = Path(config.get("portfolio_state_file", "data/portfolio_state.json"))
         current_portfolio = load_portfolio_state(portfolio_file)
 
         if current_portfolio.num_positions > 0:
-            print(f"📊 Current Portfolio: {current_portfolio.num_positions} positions, ${current_portfolio.cash:,.0f} cash")
+            print(
+                f"📊 Current Portfolio: {current_portfolio.num_positions} positions, ${current_portfolio.cash:,.0f} cash"
+            )
 
             # Generate rebalancing orders
             rebalancing_orders = generate_rebalancing_orders(
                 current_portfolio=current_portfolio,
                 target_portfolio=portfolio_df,
                 stock_data=stock_data,
-                account_value=config['account_value'],
-                cash_buffer=config.get('cash_buffer', 0.02)
+                account_value=config["account_value"],
+                cash_buffer=config.get("cash_buffer", 0.02),
             )
 
             if rebalancing_orders:
@@ -593,7 +673,9 @@ def main():
                 print()
 
                 # Show rebalancing summary
-                summary = create_rebalancing_summary(current_portfolio, rebalancing_orders, portfolio_df)
+                summary = create_rebalancing_summary(
+                    current_portfolio, rebalancing_orders, portfolio_df
+                )
 
                 print("REBALANCING SUMMARY")
                 print("-" * 50)
@@ -605,8 +687,12 @@ def main():
                 print(f"  - Sells: {summary['num_sells']} (${summary['total_sell_value']:,.0f})")
                 print(f"  - Buys: {summary['num_buys']} (${summary['total_buy_value']:,.0f})")
                 print()
-                print(f"Positions to Add: {', '.join(summary['positions_to_add']) if summary['positions_to_add'] else 'None'}")
-                print(f"Positions to Remove: {', '.join(summary['positions_to_remove']) if summary['positions_to_remove'] else 'None'}")
+                print(
+                    f"Positions to Add: {', '.join(summary['positions_to_add']) if summary['positions_to_add'] else 'None'}"
+                )
+                print(
+                    f"Positions to Remove: {', '.join(summary['positions_to_remove']) if summary['positions_to_remove'] else 'None'}"
+                )
                 print(f"Positions to Keep: {len(summary['positions_to_keep'])}")
                 print()
                 print(f"Expected Cash After: ${summary['expected_cash']:,.0f}")
@@ -623,14 +709,16 @@ def main():
 
                 print(f"\n📉 SELL ORDERS ({len(sell_orders)} total):")
                 for order in sell_orders:
-                    order_data.append([
-                        order.order_type.value,
-                        order.ticker,
-                        order.shares,
-                        f"${order.current_price:.2f}",
-                        f"${order.order_value:,.0f}",
-                        order.reason[:40] + "..." if len(order.reason) > 40 else order.reason
-                    ])
+                    order_data.append(
+                        [
+                            order.order_type.value,
+                            order.ticker,
+                            order.shares,
+                            f"${order.current_price:.2f}",
+                            f"${order.order_value:,.0f}",
+                            order.reason[:40] + "..." if len(order.reason) > 40 else order.reason,
+                        ]
+                    )
 
                 if sell_orders:
                     headers = ["Type", "Ticker", "Shares", "Price", "Value", "Reason"]
@@ -639,14 +727,16 @@ def main():
                 print(f"\n📈 BUY ORDERS ({len(buy_orders)} total):")
                 order_data = []
                 for order in buy_orders:
-                    order_data.append([
-                        order.order_type.value,
-                        order.ticker,
-                        order.shares,
-                        f"${order.current_price:.2f}",
-                        f"${order.order_value:,.0f}",
-                        order.reason[:40] + "..." if len(order.reason) > 40 else order.reason
-                    ])
+                    order_data.append(
+                        [
+                            order.order_type.value,
+                            order.ticker,
+                            order.shares,
+                            f"${order.current_price:.2f}",
+                            f"${order.order_value:,.0f}",
+                            order.reason[:40] + "..." if len(order.reason) > 40 else order.reason,
+                        ]
+                    )
 
                 if buy_orders:
                     print(tabulate(order_data, headers=headers, tablefmt="grid"))
@@ -662,20 +752,20 @@ def main():
             print(f"💼 Would invest in {len(portfolio_df)} positions")
 
             # Optionally save the new portfolio state
-            if config.get('simulate_rebalancing', True):
+            if config.get("simulate_rebalancing", True):
                 print()
                 print("💾 Simulating initial portfolio creation...")
                 # Create initial portfolio from target
-                new_portfolio = Portfolio(cash=config['account_value'])
+                new_portfolio = Portfolio(cash=config["account_value"])
                 new_portfolio.last_rebalance_date = datetime.now(UTC)
                 # Note: In production, would create Position objects from portfolio_df
                 # save_portfolio_state(new_portfolio, portfolio_file)
                 print("✅ Portfolio state ready for tracking")
 
-    elif calendar_summary['is_rebalancing_day'] and portfolio_df.empty:
+    elif calendar_summary["is_rebalancing_day"] and portfolio_df.empty:
         print()
         print("⚠️  Today is a rebalancing day but no valid portfolio could be constructed")
-    elif calendar_summary['is_rebalancing_day']:
+    elif calendar_summary["is_rebalancing_day"]:
         print()
         print("ℹ️  Rebalancing simulation disabled in configuration")
 
