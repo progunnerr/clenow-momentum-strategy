@@ -283,7 +283,10 @@ def main():
     from clenow_momentum.strategy.market_regime import (
         get_sp500_ma_status,
         calculate_market_breadth,
-        calculate_absolute_momentum
+        calculate_absolute_momentum,
+        calculate_daily_performance,
+        calculate_short_term_mas,
+        analyze_ma_position
     )
     detailed_status = get_sp500_ma_status(period=config['market_regime_period'])
     
@@ -295,6 +298,72 @@ def main():
         stock_data=stock_data  # Reuse the data we already fetched
     )
     momentum_data = calculate_absolute_momentum(period_months=12)
+    
+    # Calculate daily performance and short-term MAs
+    daily_perf = calculate_daily_performance()
+    short_mas = calculate_short_term_mas()
+    ma_analysis = analyze_ma_position(short_mas, market_regime.get('ma_value'))
+
+    # Display Daily Market Update FIRST
+    print("\n" + "=" * 60)
+    print("DAILY MARKET UPDATE")
+    print("=" * 60)
+    
+    if 'error' not in daily_perf:
+        # Format daily change with color indicators
+        change_pct = daily_perf.get('daily_change_pct', 0)
+        change_emoji = "🟢" if change_pct > 0 else "🔴" if change_pct < 0 else "➖"
+        trend_emoji = "📈" if change_pct > 0 else "📉" if change_pct < 0 else "➡️"
+        
+        print(f"{change_emoji} S&P 500 Today: {change_pct:+.2f}% (${daily_perf.get('daily_change', 0):+.2f})")
+        print(f"   • Current: ${daily_perf.get('current_price', 0):,.2f}")
+        print(f"   • Previous Close: ${daily_perf.get('previous_close', 0):,.2f}")
+        print(f"   • Trend: {daily_perf.get('daily_trend', 'Unknown')}")
+        
+        if daily_perf.get('five_day_return') is not None:
+            five_day = daily_perf.get('five_day_return', 0)
+            five_emoji = "📈" if five_day > 0 else "📉"
+            print(f"{five_emoji} 5-Day Performance: {five_day:+.2f}%")
+    else:
+        print(f"⚠️ Could not fetch daily performance: {daily_perf.get('error', 'Unknown error')}")
+    
+    # Display Short-term Technical Analysis
+    if 'error' not in ma_analysis:
+        print("\n" + "-" * 40)
+        print("SHORT-TERM TECHNICALS")
+        print("-" * 40)
+        
+        # Show position relative to MAs
+        print(f"📊 Market Position: {ma_analysis.get('mas_above', 0)}/{ma_analysis.get('total_mas', 0)} MAs")
+        
+        # Display each MA with distance
+        for ma_name, position, distance in ma_analysis.get('ma_positions', []):
+            symbol = "↑" if position == "above" else "↓"
+            color = "🟢" if position == "above" else "🔴"
+            
+            # Get MA value
+            ma_value = None
+            if "10-day" in ma_name and '10_ema' in short_mas:
+                ma_value = short_mas['10_ema']
+            elif "20-day" in ma_name and '20_sma' in short_mas:
+                ma_value = short_mas['20_sma']
+            elif "50-day" in ma_name and '50_sma' in short_mas:
+                ma_value = short_mas['50_sma']
+            elif "200-day" in ma_name:
+                ma_value = ma_analysis.get('200_ma')
+            
+            if ma_value:
+                print(f"   • {ma_name}: ${ma_value:,.2f} ({distance:+.1f}% {position})")
+        
+        # Market structure assessment
+        structure = ma_analysis.get('market_structure', 'Unknown')
+        struct_emoji = "💪" if "Strong Bullish" in structure else "📈" if "Bullish" in structure else "⚖️" if "Mixed" in structure else "📉"
+        print(f"\n{struct_emoji} Market Structure: {structure}")
+        
+        if ma_analysis.get('mas_aligned'):
+            print("   ✅ MAs are bullishly aligned (10>20>50>200)")
+        else:
+            print("   ⚠️ MAs are not aligned")
 
     print("\n" + "=" * 60)
     print("MARKET REGIME ANALYSIS")

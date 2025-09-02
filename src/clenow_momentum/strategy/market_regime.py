@@ -668,6 +668,220 @@ def calculate_absolute_momentum(period_months: int = 12) -> dict:
         return {'error': str(e)}
 
 
+def calculate_daily_performance() -> dict:
+    """
+    Calculate S&P 500 daily performance metrics.
+    
+    Returns:
+        Dictionary with daily performance data
+    """
+    logger.info("Calculating S&P 500 daily performance...")
+    
+    try:
+        # Get recent S&P 500 data (last 10 days for 5-day trend)
+        spy_data = get_sp500_data("1mo")
+        
+        if spy_data is None or spy_data.empty:
+            logger.error("Could not fetch S&P 500 data for daily performance")
+            return {'error': 'Could not fetch market data'}
+        
+        close_prices = spy_data['Close']
+        if isinstance(close_prices, pd.DataFrame):
+            close_prices = close_prices.squeeze()
+        
+        # Ensure we have enough data
+        if len(close_prices) < 2:
+            return {'error': 'Insufficient data for daily calculation'}
+        
+        # Calculate daily change
+        current_price = float(close_prices.iloc[-1])
+        previous_close = float(close_prices.iloc[-2])
+        daily_change = current_price - previous_close
+        daily_change_pct = ((current_price / previous_close) - 1) * 100
+        
+        # Calculate 5-day performance
+        five_day_return = None
+        if len(close_prices) >= 6:
+            five_days_ago = float(close_prices.iloc[-6])
+            five_day_return = ((current_price / five_days_ago) - 1) * 100
+        
+        # Determine trend
+        if daily_change_pct > 0.5:
+            daily_trend = "Strong Up"
+        elif daily_change_pct > 0:
+            daily_trend = "Up"
+        elif daily_change_pct > -0.5:
+            daily_trend = "Down"
+        else:
+            daily_trend = "Strong Down"
+        
+        return {
+            'current_price': round(current_price, 2),
+            'previous_close': round(previous_close, 2),
+            'daily_change': round(daily_change, 2),
+            'daily_change_pct': round(daily_change_pct, 2),
+            'daily_trend': daily_trend,
+            'five_day_return': round(five_day_return, 2) if five_day_return else None,
+            'latest_date': spy_data.index[-1].strftime('%Y-%m-%d')
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating daily performance: {e}")
+        return {'error': str(e)}
+
+
+def calculate_short_term_mas() -> dict:
+    """
+    Calculate short-term moving averages for S&P 500.
+    
+    Returns:
+        Dictionary with MA values and distances
+    """
+    logger.info("Calculating short-term moving averages...")
+    
+    try:
+        # Get S&P 500 data for MAs (need at least 50 days for 50-day MA)
+        spy_data = get_sp500_data("3mo")
+        
+        if spy_data is None or spy_data.empty:
+            logger.error("Could not fetch S&P 500 data for MA calculation")
+            return {'error': 'Could not fetch market data'}
+        
+        close_prices = spy_data['Close']
+        if isinstance(close_prices, pd.DataFrame):
+            close_prices = close_prices.squeeze()
+        
+        current_price = float(close_prices.iloc[-1])
+        
+        # Calculate various MAs
+        mas = {}
+        
+        # 10-day EMA
+        if len(close_prices) >= 10:
+            ema_10 = close_prices.ewm(span=10, adjust=False).mean()
+            mas['10_ema'] = float(ema_10.iloc[-1])
+            mas['10_ema_distance'] = ((current_price / mas['10_ema']) - 1) * 100
+        
+        # 20-day SMA
+        if len(close_prices) >= 20:
+            sma_20 = close_prices.rolling(window=20).mean()
+            mas['20_sma'] = float(sma_20.iloc[-1])
+            mas['20_sma_distance'] = ((current_price / mas['20_sma']) - 1) * 100
+        
+        # 50-day SMA
+        if len(close_prices) >= 50:
+            sma_50 = close_prices.rolling(window=50).mean()
+            mas['50_sma'] = float(sma_50.iloc[-1])
+            mas['50_sma_distance'] = ((current_price / mas['50_sma']) - 1) * 100
+        
+        mas['current_price'] = current_price
+        mas['latest_date'] = spy_data.index[-1].strftime('%Y-%m-%d')
+        
+        return mas
+        
+    except Exception as e:
+        logger.error(f"Error calculating short-term MAs: {e}")
+        return {'error': str(e)}
+
+
+def analyze_ma_position(short_term_mas: dict = None, long_term_ma: float = None) -> dict:
+    """
+    Analyze S&P 500 position relative to all moving averages.
+    
+    Args:
+        short_term_mas: Dictionary from calculate_short_term_mas()
+        long_term_ma: 200-day MA value
+    
+    Returns:
+        Dictionary with MA position analysis
+    """
+    try:
+        if short_term_mas is None:
+            short_term_mas = calculate_short_term_mas()
+        
+        if 'error' in short_term_mas:
+            return short_term_mas
+        
+        current_price = short_term_mas['current_price']
+        
+        # Count how many MAs we're above
+        mas_above = 0
+        mas_below = 0
+        ma_positions = []
+        
+        # Check each MA
+        if '10_ema' in short_term_mas:
+            if current_price > short_term_mas['10_ema']:
+                mas_above += 1
+                ma_positions.append(('10-day EMA', 'above', short_term_mas['10_ema_distance']))
+            else:
+                mas_below += 1
+                ma_positions.append(('10-day EMA', 'below', short_term_mas['10_ema_distance']))
+        
+        if '20_sma' in short_term_mas:
+            if current_price > short_term_mas['20_sma']:
+                mas_above += 1
+                ma_positions.append(('20-day SMA', 'above', short_term_mas['20_sma_distance']))
+            else:
+                mas_below += 1
+                ma_positions.append(('20-day SMA', 'below', short_term_mas['20_sma_distance']))
+        
+        if '50_sma' in short_term_mas:
+            if current_price > short_term_mas['50_sma']:
+                mas_above += 1
+                ma_positions.append(('50-day SMA', 'above', short_term_mas['50_sma_distance']))
+            else:
+                mas_below += 1
+                ma_positions.append(('50-day SMA', 'below', short_term_mas['50_sma_distance']))
+        
+        if long_term_ma and long_term_ma > 0:
+            distance_200 = ((current_price / long_term_ma) - 1) * 100
+            if current_price > long_term_ma:
+                mas_above += 1
+                ma_positions.append(('200-day SMA', 'above', distance_200))
+            else:
+                mas_below += 1
+                ma_positions.append(('200-day SMA', 'below', distance_200))
+        
+        # Determine market structure
+        total_mas = mas_above + mas_below
+        if total_mas == 0:
+            market_structure = "Unknown"
+        elif mas_above == total_mas:
+            market_structure = "Strong Bullish (Above all MAs)"
+        elif mas_above >= 3:
+            market_structure = "Bullish"
+        elif mas_above >= 2:
+            market_structure = "Mixed"
+        elif mas_above >= 1:
+            market_structure = "Weak"
+        else:
+            market_structure = "Bearish (Below all MAs)"
+        
+        # Check MA alignment (bullish when short > medium > long)
+        aligned = False
+        if all(k in short_term_mas for k in ['10_ema', '20_sma', '50_sma']):
+            if short_term_mas['10_ema'] > short_term_mas['20_sma'] > short_term_mas['50_sma']:
+                if long_term_ma and short_term_mas['50_sma'] > long_term_ma:
+                    aligned = True
+        
+        return {
+            'current_price': current_price,
+            'mas_above': mas_above,
+            'mas_below': mas_below,
+            'total_mas': total_mas,
+            'market_structure': market_structure,
+            'ma_positions': ma_positions,
+            'mas_aligned': aligned,
+            'short_term_mas': short_term_mas,
+            '200_ma': long_term_ma
+        }
+        
+    except Exception as e:
+        logger.error(f"Error analyzing MA position: {e}")
+        return {'error': str(e)}
+
+
 def should_trade_momentum(market_regime: dict = None) -> tuple[bool, str]:
     """
     Determine if momentum trading should be active based on market regime.
