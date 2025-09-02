@@ -659,8 +659,8 @@ def main(force_execution: bool = False):
 
             try:
                 # Import here to avoid issues when IBKR not configured
-                from src.clenow_momentum.trading.ibkr_factory import validate_ibkr_config
-                from src.clenow_momentum.trading.trading_manager import TradingManager
+                from clenow_momentum.trading.ibkr_factory import validate_ibkr_config
+                from clenow_momentum.trading.trading_manager import TradingManager
 
                 # Validate configuration first
                 ibkr_config_issues = validate_ibkr_config(config)
@@ -789,13 +789,9 @@ def main(force_execution: bool = False):
                     print(tabulate(order_data, headers=headers, tablefmt="grid"))
 
                 print(f"\n📈 BUY ORDERS ({len(buy_orders)} total):")
-                # Sort buy orders by momentum rank (lowest rank number = highest momentum)
-                buy_orders_sorted = sorted(
-                    buy_orders, 
-                    key=lambda x: getattr(x, 'momentum_rank', float('inf'))
-                )
+                # BUY orders are already in momentum rank order from generate_rebalancing_orders
                 order_data = []
-                for order in buy_orders_sorted:
+                for order in buy_orders:
                     order_data.append(
                         [
                             order.order_type.value,
@@ -857,13 +853,9 @@ def main(force_execution: bool = False):
                 print()
                 print("INITIAL BUY ORDERS")
                 print("-" * 50)
-                # Sort orders by momentum rank for display
-                rebalancing_orders_sorted = sorted(
-                    rebalancing_orders,
-                    key=lambda x: getattr(x, 'momentum_rank', float('inf'))
-                )
+
                 order_data = []
-                for order in rebalancing_orders_sorted[:10]:  # Show first 10
+                for order in rebalancing_orders:
                     order_data.append(
                         [
                             order.ticker,
@@ -875,9 +867,6 @@ def main(force_execution: bool = False):
 
                 headers = ["Ticker", "Shares", "Price", "Value"]
                 print(tabulate(order_data, headers=headers, tablefmt="grid"))
-
-                if len(rebalancing_orders_sorted) > 10:
-                    print(f"... and {len(rebalancing_orders_sorted) - 10} more positions")
             else:
                 print("⚠️  Could not generate initial orders - check cash availability")
 
@@ -928,6 +917,7 @@ def main(force_execution: bool = False):
                     try:
                         async with TradingManager(config) as trading_manager:
                             print(f"Status: {trading_manager.get_status_summary()}")
+                            sys.stdout.flush()  # Ensure status is shown before confirmations
 
                             return await trading_manager.execute_rebalancing(
                                 rebalancing_orders=rebalancing_orders,
@@ -985,7 +975,7 @@ def main(force_execution: bool = False):
     # Clean up IBKR connection if it was used
     if config.get("enable_ibkr_trading", False):
         try:
-            from src.clenow_momentum.trading.ibkr_singleton import force_disconnect_ibkr
+            from clenow_momentum.trading.ibkr_singleton import force_disconnect_ibkr
             asyncio.run(force_disconnect_ibkr())
             logger.debug("IBKR connection cleaned up")
         except Exception:
@@ -995,5 +985,14 @@ def main(force_execution: bool = False):
 
 
 if __name__ == "__main__":
-    exit_code = main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Run Clenow momentum strategy analysis")
+    parser.add_argument(
+        "--force", 
+        action="store_true", 
+        help="Force execution without confirmation prompts"
+    )
+    args = parser.parse_args()
+    
+    exit_code = main(force_execution=args.force)
     sys.exit(exit_code)

@@ -402,7 +402,6 @@ def generate_rebalancing_orders(
     """
     orders = []
     available_cash = current_portfolio.cash
-    account_value * (1 - cash_buffer)
 
     current_tickers = set(current_portfolio.positions.keys())
     target_tickers = set(target_portfolio["ticker"].values) if not target_portfolio.empty else set()
@@ -412,10 +411,10 @@ def generate_rebalancing_orders(
 
     for ticker in tickers_to_sell:
         position = current_portfolio.positions[ticker]
-        
+
         # Build detailed exit reason
         reasons = []
-        
+
         # Check if stock data is available for more context
         if not stock_data.empty and ticker in stock_data.columns.get_level_values(1):
             ticker_data = stock_data.xs(ticker, level=1, axis=1)
@@ -424,9 +423,9 @@ def generate_rebalancing_orders(
                 reasons.append("Position no longer meets momentum criteria")
         else:
             reasons.append("Not in target portfolio")
-        
+
         reasons.append("Full position exit required for rebalancing")
-        
+
         order = RebalancingOrder(
             ticker=ticker,
             order_type=OrderType.SELL,
@@ -466,11 +465,14 @@ def generate_rebalancing_orders(
             available_cash += order_value
             logger.debug(f"SELL order: {ticker} - {shares_to_sell} shares (reduce position)")
 
-    # 3. Generate BUY orders for new positions
-    tickers_to_buy = target_tickers - current_tickers
+    # 3. Generate BUY orders for new positions (in momentum rank order as provided)
+    # Process target portfolio in order - it should already be sorted by momentum
+    for _, target_row in target_portfolio.iterrows():
+        ticker = target_row["ticker"]
 
-    for ticker in tickers_to_buy:
-        target_row = target_portfolio[target_portfolio["ticker"] == ticker].iloc[0]
+        # Skip if not a new position
+        if ticker in current_tickers:
+            continue
 
         # Check if we have enough cash
         if target_row["investment"] > available_cash:
@@ -489,7 +491,7 @@ def generate_rebalancing_orders(
         elif "momentum_rank" in target_row:
             reasons.append(f"Rank #{target_row['momentum_rank']}")
         reasons.append("New position entry based on strong momentum signal")
-        
+
         order = RebalancingOrder(
             ticker=ticker,
             order_type=OrderType.BUY,
@@ -499,7 +501,7 @@ def generate_rebalancing_orders(
             reason=". ".join(reasons) if reasons else "New position - entering based on momentum signal",
             priority=3,  # New buys have third priority
         )
-        
+
         # Add momentum metrics as attributes for display
         if "momentum_score" in target_row:
             order.momentum_score = target_row["momentum_score"]
@@ -510,6 +512,41 @@ def generate_rebalancing_orders(
             order.momentum_rank = target_row["momentum_rank"]
         if "r_squared" in target_row:
             order.r_squared = target_row["r_squared"]
+
+        # Add weight percentage and filter information
+        if "target_weight" in target_row:
+            order.target_weight = target_row["target_weight"]
+        elif "target_value_pct" in target_row:
+            order.target_weight = target_row["target_value_pct"] / 100
+        else:
+            # Calculate if not present
+            order.target_weight = target_row["investment"] / account_value
+
+        # Add filter information
+        order.filters_passed = []
+        if "above_ma" in target_row and target_row.get("above_ma", False):
+            order.filters_passed.append("Above 100-day MA")
+        if "price_vs_ma" in target_row:
+            pct_above_ma = target_row["price_vs_ma"] * 100
+            order.filters_passed.append(f"Price {pct_above_ma:+.1f}% vs MA")
+        if "latest_price" in target_row and "ma_100" in target_row:
+            order.filters_passed.append(f"MA: ${target_row['ma_100']:.2f}")
+        if "gap_detected" in target_row and not target_row.get("gap_detected", False):
+            order.filters_passed.append("No significant gaps")
+        if "index_member" in target_row and target_row.get("index_member", False):
+            order.filters_passed.append("S&P 500 member")
+        if "high_above_low" in target_row:
+            pct_above_low = (target_row["high_above_low"] - 1) * 100
+            order.filters_passed.append(f"Within {pct_above_low:.1f}% of 52w high")
+        
+        # Add volatility/ATR information
+        if "atr" in target_row:
+            order.atr = target_row["atr"]
+            order.volatility_pct = (target_row["atr"] / target_row["current_price"]) * 100
+        if "stop_loss" in target_row:
+            order.stop_loss = target_row["stop_loss"]
+        if "actual_risk" in target_row:
+            order.risk_amount = target_row["actual_risk"]
         orders.append(order)
         available_cash -= target_row["investment"]
         logger.debug(f"BUY order: {ticker} - {int(target_row['shares'])} shares (new position)")
@@ -541,7 +578,7 @@ def generate_rebalancing_orders(
                 reason=f"Position size increase. Adding {shares_to_buy} shares to reach target allocation of {target_shares} total shares",
                 priority=4,  # Increases have lowest priority
             )
-            
+
             # Add momentum metrics if available
             if "momentum_score" in target_row:
                 order.momentum_score = target_row["momentum_score"]
@@ -550,6 +587,23 @@ def generate_rebalancing_orders(
                 order.momentum_rank = target_row["portfolio_rank"]
             elif "momentum_rank" in target_row:
                 order.momentum_rank = target_row["momentum_rank"]
+
+            # Add weight percentage
+            if "target_weight" in target_row:
+                order.target_weight = target_row["target_weight"]
+            elif "target_value_pct" in target_row:
+                order.target_weight = target_row["target_value_pct"] / 100
+            else:
+                order.target_weight = target_row["investment"] / account_value
+            
+            # Add volatility/ATR information
+            if "atr" in target_row:
+                order.atr = target_row["atr"]
+                order.volatility_pct = (target_row["atr"] / target_row["current_price"]) * 100
+            if "stop_loss" in target_row:
+                order.stop_loss = target_row["stop_loss"]
+            if "actual_risk" in target_row:
+                order.risk_amount = target_row["actual_risk"]
             orders.append(order)
             available_cash -= order_value
             logger.debug(f"BUY order: {ticker} - {shares_to_buy} shares (increase position)")
