@@ -9,6 +9,9 @@ uv run python scripts/run_analysis.py
 
 # Or use the main entry point
 uv run python main.py
+
+# Run with automatic execution (skip order confirmations)
+uv run python main.py --force
 ```
 
 ### 2. Run Tests to Verify Everything Works
@@ -85,6 +88,52 @@ Average 90-day Return: 28.4%
 
 ✅ Analysis complete!
 ```
+
+## Trading with Order Confirmations (NEW)
+
+When IBKR trading is enabled and it's a rebalancing day, you'll see interactive order confirmations:
+
+### Order Confirmation Display
+```
+============================================================
+📋 ORDER CONFIRMATION REQUIRED
+============================================================
+
+📈 BUY ORDER
+Symbol: NVDA
+Shares: 150
+Current Price: $485.50
+Total Value: $72,825.00
+
+📊 REASON:
+  • Momentum score: 2.145
+  • Rank #1
+  • New position entry based on strong momentum signal
+
+📈 TRADE METRICS:
+  • Momentum Rank: #1
+  • Momentum Score: 2.145
+  • R-squared: 0.923
+  • Position Size: 7.3% of portfolio
+
+⚠️  This will buy 150 shares of NVDA
+    Impact: $72,825.00
+
+Options:
+  [y] Execute this order
+  [n] Skip this order
+  [a] Approve all remaining orders
+  [q] Cancel all orders and quit
+
+Your choice: y
+✅ Order confirmed
+```
+
+### Trading Options
+- **Interactive Mode** (default): Review each order individually
+- **Force Mode** (`--force`): Skip all confirmations for automated execution
+- **Approve All**: Press 'a' during confirmation to approve remaining orders
+- **Safety Exit**: Press 'q' to cancel all orders and exit safely
 
 ## Understanding the Results
 
@@ -182,24 +231,34 @@ uv run pytest tests/test_indicators/test_momentum.py::TestMomentumScore::test_st
 - [ ] All tests pass (`uv run pytest`)
 - [ ] Code quality checks pass (`uvx ruff check .`)
 
-### Ready for Phase 2?
-Once Phase 1 works, we can add:
-1. **Trading filters** (moving averages, gap detection)
-2. **Position sizing** (ATR-based risk management)  
-3. **IBKR integration** (paper trading)
+### Project Complete - All Phases Implemented!
+The Clenow Momentum Strategy now includes:
+1. ✅ **Phase 1**: Momentum calculation and ranking
+2. ✅ **Phase 2**: Trading filters (MA, gap detection, market regime)
+3. ✅ **Phase 3**: ATR-based position sizing
+4. ✅ **Phase 4**: Trading schedule and rebalancing
+5. ✅ **Phase 5**: Full IBKR integration with live trading
+6. ✅ **NEW**: Interactive order confirmation system
 
 ## Quick Commands Reference
 
 ```bash
 # Development
-uv run python main.py                    # Run analysis
+uv run python main.py                    # Run analysis (with order confirmations)
+uv run python main.py --force            # Run analysis (skip confirmations)
 uv run pytest                           # Run tests  
 uvx ruff check .                         # Lint code
 uvx ruff format .                        # Format code
 
+# IBKR Trading
+uv run python scripts/ibkr_trading.py test   # Test IBKR connection
+uv run python scripts/ibkr_trading.py sync   # Sync portfolio
+uv run python scripts/ibkr_trading.py status # Check status
+
 # Testing specific components
 uv run pytest tests/test_data/ -v       # Test data fetching
 uv run pytest tests/test_indicators/ -v # Test momentum calculations
+uv run pytest tests/test_trading/ -v    # Test IBKR integration
 uv run pytest --cov=src/clenow_momentum # Coverage report
 
 # Project info

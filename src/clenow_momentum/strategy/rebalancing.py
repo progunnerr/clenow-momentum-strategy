@@ -412,13 +412,28 @@ def generate_rebalancing_orders(
 
     for ticker in tickers_to_sell:
         position = current_portfolio.positions[ticker]
+        
+        # Build detailed exit reason
+        reasons = []
+        
+        # Check if stock data is available for more context
+        if not stock_data.empty and ticker in stock_data.columns.get_level_values(1):
+            ticker_data = stock_data.xs(ticker, level=1, axis=1)
+            if not ticker_data.empty:
+                # Check for filter failures or momentum drop
+                reasons.append("Position no longer meets momentum criteria")
+        else:
+            reasons.append("Not in target portfolio")
+        
+        reasons.append("Full position exit required for rebalancing")
+        
         order = RebalancingOrder(
             ticker=ticker,
             order_type=OrderType.SELL,
             shares=position.shares,
             current_price=position.current_price,
             order_value=position.market_value,
-            reason="Not in target portfolio - full exit",
+            reason=". ".join(reasons),
             priority=1,  # Sells have highest priority
         )
         orders.append(order)
@@ -444,7 +459,7 @@ def generate_rebalancing_orders(
                 shares=shares_to_sell,
                 current_price=current_pos.current_price,
                 order_value=order_value,
-                reason=f"Reduce position from {current_pos.shares} to {target_shares} shares",
+                reason=f"Position size adjustment. Reducing from {current_pos.shares} to {target_shares} shares for optimal portfolio balance",
                 priority=2,  # Partial sells have second priority
             )
             orders.append(order)
@@ -464,15 +479,31 @@ def generate_rebalancing_orders(
             )
             continue
 
+        # Build detailed buy reason with metrics
+        reasons = []
+        if "momentum_score" in target_row:
+            reasons.append(f"Momentum score: {target_row['momentum_score']:.3f}")
+        if "momentum_rank" in target_row:
+            reasons.append(f"Rank #{target_row['momentum_rank']}")
+        reasons.append("New position entry based on strong momentum signal")
+        
         order = RebalancingOrder(
             ticker=ticker,
             order_type=OrderType.BUY,
             shares=int(target_row["shares"]),
             current_price=target_row["current_price"],
             order_value=target_row["investment"],
-            reason="New position - entering based on momentum signal",
+            reason=". ".join(reasons) if reasons else "New position - entering based on momentum signal",
             priority=3,  # New buys have third priority
         )
+        
+        # Add momentum metrics as attributes for display
+        if "momentum_score" in target_row:
+            order.momentum_score = target_row["momentum_score"]
+        if "momentum_rank" in target_row:
+            order.momentum_rank = target_row["momentum_rank"]
+        if "r_squared" in target_row:
+            order.r_squared = target_row["r_squared"]
         orders.append(order)
         available_cash -= target_row["investment"]
         logger.debug(f"BUY order: {ticker} - {int(target_row['shares'])} shares (new position)")
@@ -501,9 +532,15 @@ def generate_rebalancing_orders(
                 shares=shares_to_buy,
                 current_price=target_row["current_price"],
                 order_value=order_value,
-                reason=f"Increase position from {current_pos.shares} to {target_shares} shares",
+                reason=f"Position size increase. Adding {shares_to_buy} shares to reach target allocation of {target_shares} total shares",
                 priority=4,  # Increases have lowest priority
             )
+            
+            # Add momentum metrics if available
+            if "momentum_score" in target_row:
+                order.momentum_score = target_row["momentum_score"]
+            if "momentum_rank" in target_row:
+                order.momentum_rank = target_row["momentum_rank"]
             orders.append(order)
             available_cash -= order_value
             logger.debug(f"BUY order: {ticker} - {shares_to_buy} shares (increase position)")

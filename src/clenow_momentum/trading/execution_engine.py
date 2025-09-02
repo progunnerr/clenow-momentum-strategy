@@ -49,6 +49,9 @@ class TradingExecutionEngine:
         self.order_timeout = 300  # 5 minutes
         self.max_retry_attempts = 3
         self.retry_delay = 10  # 10 seconds
+        
+        # Confirmation settings - always require by default
+        self.skip_confirmations = False  # Can be set to skip all confirmations
 
         logger.info("Trading execution engine initialized")
 
@@ -58,6 +61,7 @@ class TradingExecutionEngine:
         portfolio: Portfolio,
         dry_run: bool = False,
         max_concurrent_orders: int = 5,
+        force_execution: bool = False,
     ) -> tuple[list[RebalancingOrder], dict]:
         """
         Execute a list of rebalancing orders.
@@ -67,11 +71,15 @@ class TradingExecutionEngine:
             portfolio: Current portfolio to update
             dry_run: If True, simulate execution without placing real orders
             max_concurrent_orders: Maximum number of concurrent orders
+            force_execution: If True, skip all confirmation prompts
 
         Returns:
             Tuple of (executed_orders, execution_summary)
         """
-        logger.info(f"Starting execution of {len(orders)} orders (dry_run={dry_run})")
+        # Set skip confirmations based on force flag
+        self.skip_confirmations = force_execution
+        
+        logger.info(f"Starting execution of {len(orders)} orders (dry_run={dry_run}, force={force_execution})")
 
         if dry_run:
             return await self._simulate_execution(orders)
@@ -192,6 +200,96 @@ class TradingExecutionEngine:
 
         return executed_orders
 
+    def _get_order_confirmation(self, order: RebalancingOrder) -> bool:
+        """
+        Display order details in checkout style and get user confirmation.
+        
+        Args:
+            order: Order to confirm
+            
+        Returns:
+            True if user confirms, False otherwise
+        """
+        print("\n" + "="*60)
+        print("📋 ORDER CONFIRMATION REQUIRED")
+        print("="*60)
+        
+        # Order type and symbol
+        action_emoji = "📉" if order.order_type.value == "SELL" else "📈"
+        action_color = "\033[91m" if order.order_type.value == "SELL" else "\033[92m"  # Red for sell, green for buy
+        reset_color = "\033[0m"
+        
+        print(f"\n{action_emoji} {action_color}{order.order_type.value} ORDER{reset_color}")
+        print(f"Symbol: {order.ticker}")
+        print(f"Shares: {order.shares:,}")
+        print(f"Current Price: ${order.current_price:.2f}")
+        print(f"Total Value: ${order.order_value:,.2f}")
+        
+        # Show detailed reasoning
+        print(f"\n📊 REASON:")
+        # Parse the reason for better display
+        reason_lines = order.reason.split(". ")
+        for line in reason_lines:
+            if line:
+                print(f"  • {line}")
+        
+        # For BUY orders, show additional metrics if available
+        if order.order_type.value == "BUY":
+            print(f"\n📈 TRADE METRICS:")
+            if hasattr(order, 'momentum_rank'):
+                print(f"  • Momentum Rank: #{order.momentum_rank}")
+            if hasattr(order, 'momentum_score'):
+                print(f"  • Momentum Score: {order.momentum_score:.3f}")
+            if hasattr(order, 'r_squared'):
+                print(f"  • R-squared: {order.r_squared:.3f}")
+            # Calculate position percentage
+            if hasattr(order, 'account_value'):
+                position_pct = (order.order_value / order.account_value) * 100
+                print(f"  • Position Size: {position_pct:.1f}% of portfolio")
+        
+        # For SELL orders, show exit reasoning
+        if order.order_type.value == "SELL":
+            print(f"\n📉 EXIT ANALYSIS:")
+            if "momentum" in order.reason.lower():
+                print("  • Stock dropped out of top momentum rankings")
+            if "filter" in order.reason.lower():
+                print("  • Failed one or more strategy filters")
+            if "gap" in order.reason.lower():
+                print("  • Large gap detected (>15%)")
+            if "moving average" in order.reason.lower() or "ma" in order.reason.lower():
+                print("  • Price fell below moving average")
+            if "rebalance" in order.reason.lower():
+                print("  • Regular portfolio rebalancing")
+            if "position" in order.reason.lower():
+                print("  • Position no longer in target portfolio")
+        
+        # Warning based on order type
+        print(f"\n⚠️  This will {order.order_type.value.lower()} {order.shares:,} shares of {order.ticker}")
+        print(f"    Impact: ${order.order_value:,.2f}")
+        
+        # Get user input
+        print("\nOptions:")
+        print("  [y] Execute this order")
+        print("  [n] Skip this order")
+        print("  [a] Approve all remaining orders")
+        print("  [q] Cancel all orders and quit")
+        
+        response = input("\nYour choice: ").strip().lower()
+        
+        if response == 'a':
+            self.skip_confirmations = True
+            print("✅ All remaining orders will be executed automatically")
+            return True
+        elif response == 'q':
+            print("❌ Cancelling all orders and exiting...")
+            raise ExecutionError("User cancelled all orders")
+        elif response in ['y', 'yes']:
+            print("✅ Order confirmed")
+            return True
+        else:
+            print("⏭️  Skipping this order")
+            return False
+
     async def _execute_single_order_with_semaphore(
         self, order: RebalancingOrder, semaphore: asyncio.Semaphore
     ) -> RebalancingOrder:
@@ -219,6 +317,14 @@ class TradingExecutionEngine:
             Updated order with execution status
         """
         try:
+            # Check if we need confirmation (not in dry run, not skipping)
+            if not self.skip_confirmations:
+                if not self._get_order_confirmation(order):
+                    logger.info(f"Order for {order.ticker} skipped by user")
+                    order.status = OrderStatus.CANCELLED
+                    order.error_message = "Cancelled by user"
+                    return order
+            
             logger.info(
                 f"Executing {order.order_type.value} order: {order.ticker} "
                 f"({order.shares} shares @ ${order.current_price:.2f})"

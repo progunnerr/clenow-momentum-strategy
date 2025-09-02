@@ -274,7 +274,7 @@ def display_stocks_table(final_stocks, config, trading_allowed, valid_scores, ma
     print()
 
 
-def main():
+def main(force_execution: bool = False):
     """Main analysis function."""
     print("=" * 60)
     print("CLENOW MOMENTUM STRATEGY ANALYSIS")
@@ -813,6 +813,7 @@ def main():
                             return await trading_manager.execute_rebalancing(
                                 rebalancing_orders=rebalancing_orders,
                                 dry_run=False,  # Use actual trading mode from config
+                                force_execution=force_execution,
                             )
 
                     except Exception as e:

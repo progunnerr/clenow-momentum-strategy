@@ -112,6 +112,7 @@ class TradingManager:
         rebalancing_orders: list[RebalancingOrder],
         portfolio_file: Path | None = None,
         dry_run: bool = None,
+        force_execution: bool = False,
     ) -> dict:
         """
         Execute complete rebalancing process.
@@ -120,6 +121,7 @@ class TradingManager:
             rebalancing_orders: Orders to execute
             portfolio_file: Path to portfolio state file
             dry_run: Override dry run mode (auto-detects from port if None)
+            force_execution: If True, skip all confirmation prompts
 
         Returns:
             Dictionary with execution results
@@ -211,7 +213,7 @@ class TradingManager:
             # 6. Execute orders
             self.trading_session_active = True
             executed_orders, exec_summary = await self.execution_engine.execute_rebalancing_orders(
-                rebalancing_orders, portfolio, dry_run=dry_run
+                rebalancing_orders, portfolio, dry_run=dry_run, force_execution=force_execution
             )
 
             # Update execution results

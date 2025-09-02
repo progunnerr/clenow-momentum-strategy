@@ -6,6 +6,7 @@ This script provides a simple way to run the momentum analysis.
 For detailed analysis, use scripts/run_analysis.py instead.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -19,11 +20,25 @@ def main():
     """
     Main function - runs the momentum analysis.
     """
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Clenow Momentum Strategy Analysis")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip order confirmation prompts and execute all orders automatically"
+    )
+    
+    args = parser.parse_args()
+    
     print("🚀 Starting Clenow Momentum Strategy Analysis")
     print("=" * 50)
+    
+    if args.force:
+        print("⚠️  Force mode enabled - will skip all confirmation prompts")
+        print()
 
-    # Run the full analysis
-    exit_code = run_analysis()
+    # Run the full analysis with force flag
+    exit_code = run_analysis(force_execution=args.force)
 
     if exit_code == 0:
         print("\n🎉 Analysis completed successfully!")
