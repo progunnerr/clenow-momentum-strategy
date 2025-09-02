@@ -29,8 +29,8 @@ def load_config() -> dict:
         logger.warning(f".env file not found at {env_file}, using defaults")
 
     config = {
-        # Account Settings
-        "account_value": float(os.getenv("ACCOUNT_VALUE", "100000")),
+        # Strategy Settings
+        "strategy_allocation": float(os.getenv("STRATEGY_ALLOCATION", "100000")),
         "risk_per_trade": float(os.getenv("RISK_PER_TRADE", "0.001")),
         # Portfolio Construction
         "max_positions": int(os.getenv("MAX_POSITIONS", "20")),
@@ -52,13 +52,19 @@ def load_config() -> dict:
         ),  # bi-monthly or monthly
         "cash_buffer": float(os.getenv("CASH_BUFFER", "0.02")),  # 2% cash buffer
         "portfolio_state_file": os.getenv("PORTFOLIO_STATE_FILE", "data/portfolio_state.json"),
-        "simulate_rebalancing": os.getenv("SIMULATE_REBALANCING", "true").lower() == "true",
         "bypass_wednesday_check": os.getenv("BYPASS_WEDNESDAY_CHECK", "false").lower()
         == "true",  # For testing - also triggers rebalancing
+        # IBKR Integration Settings
+        "ibkr_host": os.getenv("IBKR_HOST", "127.0.0.1"),
+        "ibkr_port": int(os.getenv("IBKR_PORT", "7497")),  # Default to TWS Paper trading
+        "ibkr_client_id": int(os.getenv("IBKR_CLIENT_ID", "1")),
+        "ibkr_account_id": os.getenv("IBKR_ACCOUNT_ID", ""),
+        "ibkr_timeout": int(os.getenv("IBKR_TIMEOUT", "60")),
+        "ibkr_auto_reconnect": os.getenv("IBKR_AUTO_RECONNECT", "true").lower() == "true",
     }
 
     # Log key settings
-    logger.info(f"Account Value: ${config['account_value']:,.0f}")
+    logger.info(f"Strategy Allocation: ${config['strategy_allocation']:,.0f}")
     logger.info(f"Risk per Trade: {config['risk_per_trade']:.3%}")
     logger.info(f"Max Positions: {config['max_positions']}")
     logger.info(f"Top Momentum %: {config['top_momentum_pct']:.0%}")
@@ -66,39 +72,39 @@ def load_config() -> dict:
     return config
 
 
-def get_position_sizing_guide(account_value: float) -> dict:
+def get_position_sizing_guide(strategy_allocation: float) -> dict:
     """
-    Provide position sizing guidance based on account size.
+    Provide position sizing guidance based on strategy allocation.
 
     Args:
-        account_value: Account value in dollars
+        strategy_allocation: Strategy allocation in dollars
 
     Returns:
         Dictionary with position sizing recommendations
     """
-    if account_value < 25000:
+    if strategy_allocation < 25000:
         recommended_positions = 5
         risk_level = "Conservative (fewer positions due to minimums)"
-    elif account_value < 100000:
+    elif strategy_allocation < 100000:
         recommended_positions = 10
         risk_level = "Moderate"
-    elif account_value < 500000:
+    elif strategy_allocation < 500000:
         recommended_positions = 15
         risk_level = "Balanced"
     else:
         recommended_positions = 20
         risk_level = "Fully Diversified"
 
-    risk_per_trade_dollars = account_value * 0.001  # 0.1%
+    risk_per_trade_dollars = strategy_allocation * 0.001  # 0.1%
 
     return {
-        "account_value": account_value,
+        "strategy_allocation": strategy_allocation,
         "recommended_positions": recommended_positions,
         "risk_level": risk_level,
         "risk_per_trade_dollars": risk_per_trade_dollars,
-        "min_position_for_diversification": account_value / recommended_positions,
+        "min_position_for_diversification": strategy_allocation / recommended_positions,
         "guidance": {
-            "risk_per_trade": f"${risk_per_trade_dollars:.0f} (0.1% of account)",
+            "risk_per_trade": f"${risk_per_trade_dollars:.0f} (0.1% of strategy allocation)",
             "position_sizing": f"Target {recommended_positions} positions for optimal diversification",
             "min_stock_price": f"Can trade stocks up to ${risk_per_trade_dollars * 10:.0f} effectively",
         },
@@ -117,9 +123,9 @@ def validate_config(config: dict) -> list:
     """
     warnings = []
 
-    # Account value checks
-    if config["account_value"] < 10000:
-        warnings.append("⚠️  Account value under $10,000 may limit diversification")
+    # Strategy allocation checks
+    if config["strategy_allocation"] < 10000:
+        warnings.append("⚠️  Strategy allocation under $10,000 may limit diversification")
 
     # Risk per trade checks
     if config["risk_per_trade"] > 0.005:
@@ -128,9 +134,8 @@ def validate_config(config: dict) -> list:
         warnings.append("⚠️  Risk per trade < 0.05% is very conservative")
 
     # Position count checks
-    config["account_value"] * config["risk_per_trade"]
-    if config["max_positions"] > config["account_value"] / config["min_position_value"]:
-        warnings.append("⚠️  Too many positions for account size given minimum position value")
+    if config["max_positions"] > config["strategy_allocation"] / config["min_position_value"]:
+        warnings.append("⚠️  Too many positions for strategy allocation given minimum position value")
 
     # Diversification checks
     if config["max_positions"] < 10:

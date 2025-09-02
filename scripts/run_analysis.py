@@ -17,6 +17,8 @@ from tabulate import tabulate
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Initialize logger configuration
+import asyncio
+
 from clenow_momentum.data.fetcher import get_sp500_tickers, get_stock_data
 from clenow_momentum.indicators.filters import apply_all_filters
 from clenow_momentum.indicators.momentum import (
@@ -35,6 +37,8 @@ from clenow_momentum.strategy.trading_schedule import (
     get_trading_calendar_summary,
     should_execute_trades,
 )
+from clenow_momentum.trading import get_trading_mode, validate_ibkr_config
+from clenow_momentum.trading.trading_manager import TradingManager
 from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config
 
 
@@ -68,11 +72,11 @@ def print_trading_schedule_status(config):
 
 
 def print_account_sizing(config):
-    """Print account and position sizing information."""
-    sizing_guide = get_position_sizing_guide(config["account_value"])
-    print("ACCOUNT & POSITION SIZING")
+    """Print strategy allocation and position sizing information."""
+    sizing_guide = get_position_sizing_guide(config["strategy_allocation"])
+    print("STRATEGY ALLOCATION & POSITION SIZING")
     print("-" * 30)
-    print(f"💰 Account Value: ${config['account_value']:,.0f}")
+    print(f"💰 Strategy Allocation: ${config['strategy_allocation']:,.0f}")
     print(
         f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${sizing_guide['risk_per_trade_dollars']:,.0f})"
     )
@@ -203,15 +207,15 @@ def display_portfolio_table(portfolio_df, config):
 
     print("PORTFOLIO SUMMARY")
     print("-" * 50)
-    print(f"💰 Account Value: ${config['account_value']:,.0f}")
+    print(f"💰 Strategy Allocation: ${config['strategy_allocation']:,.0f}")
     print(f"📊 Total Positions: {total_positions}")
     print(f"💼 Total Investment: ${total_investment:,.0f}")
-    print(f"💵 Cash Remaining: ${config['account_value'] - total_investment:,.0f}")
-    print(f"📈 Capital Utilization: {total_investment / config['account_value']:.1%}")
+    print(f"💵 Cash Remaining: ${config['strategy_allocation'] - total_investment:,.0f}")
+    print(f"📈 Capital Utilization: {total_investment / config['strategy_allocation']:.1%}")
     print(f"⚖️  Average Position: ${avg_position:,.0f}")
     print(f"⚠️  Total Portfolio Risk: ${total_risk:,.0f}")
     print(
-        f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['account_value'] * config['risk_per_trade']:,.0f})"
+        f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['strategy_allocation'] * config['risk_per_trade']:,.0f})"
     )
 
 
@@ -595,7 +599,7 @@ def main():
         portfolio_df = build_portfolio(
             filtered_stocks=stocks_for_portfolio,
             stock_data=stock_data,
-            account_value=config["account_value"],
+            account_value=config["strategy_allocation"],
             risk_per_trade=config["risk_per_trade"],
             atr_period=config["atr_period"],
             allocation_method="equal_risk",
@@ -638,11 +642,8 @@ def main():
             display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime)
 
     # Step 8: Rebalancing Analysis (if it's a rebalancing day and we have a portfolio)
-    if (
-        calendar_summary["is_rebalancing_day"]
-        and not portfolio_df.empty
-        and config.get("simulate_rebalancing", True)
-    ):
+    rebalancing_orders = []  # Initialize for IBKR integration
+    if calendar_summary["is_rebalancing_day"] and not portfolio_df.empty:
         print()
         print("=" * 60)
         print("🔄 REBALANCING ANALYSIS")
@@ -664,7 +665,7 @@ def main():
                 current_portfolio=current_portfolio,
                 target_portfolio=portfolio_df,
                 stock_data=stock_data,
-                account_value=config["account_value"],
+                account_value=config["strategy_allocation"],
                 cash_buffer=config.get("cash_buffer", 0.02),
             )
 
@@ -751,25 +752,115 @@ def main():
             print("📊 No existing portfolio found - this would be initial portfolio construction")
             print(f"💼 Would invest in {len(portfolio_df)} positions")
 
-            # Optionally save the new portfolio state
-            if config.get("simulate_rebalancing", True):
-                print()
-                print("💾 Simulating initial portfolio creation...")
-                # Create initial portfolio from target
-                new_portfolio = Portfolio(cash=config["account_value"])
-                new_portfolio.last_rebalance_date = datetime.now(UTC)
-                # Note: In production, would create Position objects from portfolio_df
-                # save_portfolio_state(new_portfolio, portfolio_file)
-                print("✅ Portfolio state ready for tracking")
+            # Show initial portfolio creation message
+            print()
+            print("💾 Simulating initial portfolio creation...")
+            # Create initial portfolio from target
+            new_portfolio = Portfolio(cash=config["strategy_allocation"])
+            new_portfolio.last_rebalance_date = datetime.now(UTC)
+            # Note: In production, would create Position objects from portfolio_df
+            # save_portfolio_state(new_portfolio, portfolio_file)
+            print("✅ Portfolio state ready for tracking")
 
     elif calendar_summary["is_rebalancing_day"] and portfolio_df.empty:
         print()
         print("⚠️  Today is a rebalancing day but no valid portfolio could be constructed")
-    elif calendar_summary["is_rebalancing_day"]:
-        print()
-        print("ℹ️  Rebalancing simulation disabled in configuration")
 
-    print("✅ Analysis complete!")
+    # Step 9: IBKR Live Trading Execution (if enabled and conditions met)
+    if (
+        calendar_summary["is_rebalancing_day"]
+        and not portfolio_df.empty
+        and config.get("enable_ibkr_trading", False)
+        and rebalancing_orders  # From Step 8
+    ):
+        print()
+        print("=" * 60)
+        print("🔗 IBKR LIVE TRADING EXECUTION")
+        print("=" * 60)
+
+        try:
+            # Check IBKR configuration
+            ibkr_config_issues = validate_ibkr_config(config)
+            critical_issues = [issue for issue in ibkr_config_issues if "❌" in issue]
+
+            if critical_issues:
+                print("❌ IBKR configuration issues prevent trading:")
+                for issue in critical_issues:
+                    print(f"  {issue}")
+                print("Please fix configuration issues before enabling live trading.")
+            else:
+                if ibkr_config_issues:
+                    print("⚠️ IBKR configuration warnings:")
+                    for issue in ibkr_config_issues:
+                        print(f"  {issue}")
+                    print()
+
+                print("🚀 Executing rebalancing orders via IBKR...")
+                trading_mode = get_trading_mode(config)
+                if trading_mode == "live":
+                    print("Trading mode: 🚨 LIVE TRADING")
+                elif trading_mode == "paper":
+                    print("Trading mode: PAPER TRADING")
+                else:
+                    print(f"Trading mode: {trading_mode.upper()}")
+
+                # Execute trading using async wrapper
+                async def execute_ibkr_trading():
+                    try:
+                        async with TradingManager(config) as trading_manager:
+                            print(f"Status: {trading_manager.get_status_summary()}")
+
+                            return await trading_manager.execute_rebalancing(
+                                rebalancing_orders=rebalancing_orders,
+                                dry_run=False,  # Use actual trading mode from config
+                            )
+
+                    except Exception as e:
+                        print(f"❌ IBKR trading execution failed: {e}")
+                        return None
+
+                # Run the trading execution
+                execution_results = asyncio.run(execute_ibkr_trading())
+
+                if execution_results:
+                    print("\n🎯 TRADING EXECUTION RESULTS")
+                    print("-" * 40)
+                    print(f"Status: {execution_results.get('status', 'Unknown')}")
+                    print(f"Orders submitted: {execution_results.get('orders_submitted', 0)}")
+                    print(f"Orders executed: {execution_results.get('orders_executed', 0)}")
+                    print(f"Orders failed: {execution_results.get('orders_failed', 0)}")
+                    print(f"Total value traded: ${execution_results.get('total_value_traded', 0):,.2f}")
+                    print(f"Total commission: ${execution_results.get('total_commission', 0):,.2f}")
+                    print(f"Execution time: {execution_results.get('execution_duration_minutes', 0):.1f} minutes")
+
+                    if execution_results.get('discrepancies', 0) > 0:
+                        print(f"⚠️ Portfolio discrepancies detected: {execution_results['discrepancies']}")
+
+                    if execution_results.get('post_trade_alerts', 0) > 0:
+                        print(f"🚨 Post-trade alerts: {execution_results['post_trade_alerts']}")
+
+                    if execution_results.get('status') == 'completed_successfully':
+                        print("✅ Live trading execution completed successfully!")
+                    else:
+                        print("⚠️ Trading execution completed with issues")
+                else:
+                    print("❌ Trading execution failed")
+
+        except Exception as e:
+            print(f"❌ IBKR trading module error: {e}")
+            print("Analysis will continue without live trading")
+
+    elif config.get("enable_ibkr_trading", False):
+        print()
+        print("ℹ️  IBKR trading is enabled but conditions not met for execution:")
+        if not calendar_summary["is_rebalancing_day"]:
+            print("   - Not a rebalancing day")
+        if portfolio_df.empty:
+            print("   - No valid portfolio constructed")
+        if not rebalancing_orders:
+            print("   - No rebalancing orders generated")
+
+    print("\n✅ Analysis complete!")
     return 0
 
 

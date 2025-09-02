@@ -34,7 +34,7 @@ class OrderStatus(Enum):
 
 @dataclass
 class Position:
-    """Represents a portfolio position."""
+    """Represents a portfolio position with IBKR integration support."""
 
     ticker: str
     shares: int
@@ -43,6 +43,11 @@ class Position:
     entry_date: datetime
     atr: float
     stop_loss: float | None = None
+    # IBKR-specific fields
+    ibkr_position_id: str | None = None
+    avg_cost_basis: float | None = None
+    realized_pnl: float = 0.0
+    last_updated: datetime | None = None
 
     @property
     def market_value(self) -> float:
@@ -61,10 +66,39 @@ class Position:
             return 0.0
         return (self.current_price - self.entry_price) / self.entry_price
 
+    @property
+    def total_pnl(self) -> float:
+        """Calculate total P&L (realized + unrealized)."""
+        return self.realized_pnl + self.unrealized_pnl
+
+    def update_from_ibkr_position(self, ibkr_position) -> None:
+        """
+        Update position from IBKR position data.
+
+        Args:
+            ibkr_position: IBKR position object
+        """
+        if hasattr(ibkr_position, 'position'):
+            self.shares = int(ibkr_position.position)
+
+        if hasattr(ibkr_position, 'avgCost'):
+            self.avg_cost_basis = ibkr_position.avgCost
+            # Update entry price if we have better data
+            if self.avg_cost_basis and self.avg_cost_basis > 0:
+                self.entry_price = self.avg_cost_basis
+
+        if hasattr(ibkr_position, 'marketPrice'):
+            self.current_price = ibkr_position.marketPrice
+
+        if hasattr(ibkr_position, 'realizedPNL'):
+            self.realized_pnl = ibkr_position.realizedPNL
+
+        self.last_updated = datetime.now(UTC)
+
 
 @dataclass
 class RebalancingOrder:
-    """Represents a rebalancing order."""
+    """Represents a rebalancing order with IBKR integration support."""
 
     ticker: str
     order_type: OrderType
@@ -76,6 +110,15 @@ class RebalancingOrder:
     status: OrderStatus = OrderStatus.PENDING
     execution_price: float | None = None
     execution_time: datetime | None = None
+    # IBKR-specific fields
+    ibkr_order_id: int | None = None
+    ibkr_trade_id: str | None = None
+    limit_price: float | None = None
+    order_ref: str | None = None
+    filled_quantity: int = 0
+    avg_fill_price: float | None = None
+    commission: float | None = None
+    error_message: str | None = None
 
     def to_dict(self) -> dict:
         """Convert order to dictionary."""
@@ -88,7 +131,69 @@ class RebalancingOrder:
             "reason": self.reason,
             "priority": self.priority,
             "status": self.status.value,
+            "execution_price": self.execution_price,
+            "execution_time": self.execution_time.isoformat() if self.execution_time else None,
+            "ibkr_order_id": self.ibkr_order_id,
+            "ibkr_trade_id": self.ibkr_trade_id,
+            "limit_price": self.limit_price,
+            "order_ref": self.order_ref,
+            "filled_quantity": self.filled_quantity,
+            "avg_fill_price": self.avg_fill_price,
+            "commission": self.commission,
+            "error_message": self.error_message,
         }
+
+    @property
+    def is_filled(self) -> bool:
+        """Check if order is fully filled."""
+        return self.filled_quantity >= self.shares and self.status == OrderStatus.EXECUTED
+
+    @property
+    def is_partially_filled(self) -> bool:
+        """Check if order is partially filled."""
+        return 0 < self.filled_quantity < self.shares
+
+    @property
+    def remaining_quantity(self) -> int:
+        """Get remaining quantity to be filled."""
+        return max(0, self.shares - self.filled_quantity)
+
+    def update_from_ibkr_trade(self, trade) -> None:
+        """
+        Update order status from IBKR Trade object.
+
+        Args:
+            trade: IBKR Trade object from ib_async
+        """
+        if hasattr(trade, 'order') and hasattr(trade, 'orderStatus'):
+            order = trade.order
+            status = trade.orderStatus
+
+            # Update basic fields
+            self.ibkr_order_id = order.orderId
+            self.filled_quantity = status.filled
+            self.avg_fill_price = status.avgFillPrice if status.avgFillPrice > 0 else None
+
+            # Update status based on IBKR status
+            ibkr_status = status.status.upper()
+            if ibkr_status in ['FILLED']:
+                self.status = OrderStatus.EXECUTED
+                self.execution_price = status.avgFillPrice
+                self.execution_time = datetime.now(UTC)
+            elif ibkr_status in ['CANCELLED']:
+                self.status = OrderStatus.CANCELLED
+            elif ibkr_status in ['SUBMITTED', 'PRESUBMITTED']:
+                self.status = OrderStatus.PENDING
+            elif 'ERROR' in ibkr_status:
+                self.status = OrderStatus.FAILED
+
+        # Update commission if available
+        if hasattr(trade, 'fills') and trade.fills:
+            total_commission = sum(fill.commissionReport.commission
+                                 for fill in trade.fills
+                                 if fill.commissionReport)
+            if total_commission:
+                self.commission = total_commission
 
 
 @dataclass

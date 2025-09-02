@@ -1,0 +1,22 @@
+{
+  "cash": 15000,
+  "last_rebalance_date": null,
+  "positions": {
+    "AAPL": {
+      "shares": 100,
+      "entry_price": 150,
+      "current_price": 228.6699981689453,
+      "entry_date": "2025-09-02T19:10:09.338858+00:00",
+      "atr": 5.0,
+      "stop_loss": null
+    },
+    "TSLA": {
+      "shares": 50,
+      "entry_price": 800,
+      "current_price": 329.0400085449219,
+      "entry_date": "2025-09-02T19:10:09.854416+00:00",
+      "atr": 0.0,
+      "stop_loss": null
+    }
+  }
+}

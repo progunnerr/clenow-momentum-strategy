@@ -1,3 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clenow_momentum"]
+
 [project]
 name = "clenow-momentum-project"
 version = "0.1.0"
@@ -16,6 +23,10 @@ dependencies = [
     "loguru>=0.7.0",
     "lxml>=4.9.0",
     "python-dotenv>=1.0.0",
+    "ib_async>=0.9.86",
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "pytest-mock>=3.14.1",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +39,11 @@ dev = [
 
 [project.scripts]
 analyze = "scripts.run_analysis:main"
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
