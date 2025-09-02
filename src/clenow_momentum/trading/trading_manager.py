@@ -18,7 +18,8 @@ from ..strategy.rebalancing import (
 )
 from ..utils.config import load_config
 from .execution_engine import TradingExecutionEngine
-from .ibkr_factory import create_ibkr_connector, get_trading_mode, validate_ibkr_config
+from .ibkr_factory import get_trading_mode, validate_ibkr_config
+from .ibkr_singleton import get_ibkr_connector, release_ibkr_connector
 from .portfolio_sync import PortfolioSynchronizer
 from .risk_controls import RiskCheckResult, RiskControlSystem
 
@@ -82,12 +83,9 @@ class TradingManager:
                         raise TradingManagerError(f"Configuration error: {issue}")
                     logger.warning(issue)
 
-            # Create and connect IBKR connector
-            self.ibkr_connector = create_ibkr_connector(self.config)
-
-            logger.info("Connecting to IBKR...")
-            if not await self.ibkr_connector.connect():
-                raise TradingManagerError("Failed to connect to IBKR")
+            # Get IBKR connector singleton
+            logger.info("Getting IBKR connector...")
+            self.ibkr_connector = await get_ibkr_connector(self.config)
 
             # Initialize other components
             self.portfolio_sync = PortfolioSynchronizer(self.ibkr_connector)
@@ -113,6 +111,7 @@ class TradingManager:
         portfolio_file: Path | None = None,
         dry_run: bool = None,
         force_execution: bool = False,
+        pre_synced_portfolio: Portfolio | None = None,
     ) -> dict:
         """
         Execute complete rebalancing process.
@@ -122,6 +121,7 @@ class TradingManager:
             portfolio_file: Path to portfolio state file
             dry_run: Override dry run mode (auto-detects from port if None)
             force_execution: If True, skip all confirmation prompts
+            pre_synced_portfolio: If provided, skip portfolio sync (already synced)
 
         Returns:
             Dictionary with execution results
@@ -147,18 +147,26 @@ class TradingManager:
         }
 
         try:
-            # 1. Load current portfolio state
-            logger.info("Loading current portfolio state...")
-            if portfolio_file is None:
-                portfolio_file = Path(self.config["portfolio_state_file"])
+            # 1. Load or use pre-synced portfolio
+            if pre_synced_portfolio is not None:
+                # Portfolio already synced, use it directly
+                logger.info("Using pre-synced portfolio from IBKR...")
+                portfolio = pre_synced_portfolio
+                execution_results["portfolio_synced"] = True
+                self.last_sync_time = datetime.now(UTC)
+            else:
+                # Load and sync portfolio
+                logger.info("Loading current portfolio state...")
+                if portfolio_file is None:
+                    portfolio_file = Path(self.config["portfolio_state_file"])
 
-            portfolio = load_portfolio_state(portfolio_file)
+                portfolio = load_portfolio_state(portfolio_file)
 
-            # 2. Sync portfolio with IBKR
-            logger.info("Synchronizing portfolio with IBKR...")
-            portfolio = await self.portfolio_sync.sync_portfolio_from_ibkr(portfolio)
-            execution_results["portfolio_synced"] = True
-            self.last_sync_time = datetime.now(UTC)
+                # 2. Sync portfolio with IBKR
+                logger.info("Synchronizing portfolio with IBKR...")
+                portfolio = await self.portfolio_sync.sync_portfolio_from_ibkr(portfolio)
+                execution_results["portfolio_synced"] = True
+                self.last_sync_time = datetime.now(UTC)
 
             # 3. Get account information and check cash availability
             account_info = await self.ibkr_connector.get_account_info()
@@ -182,8 +190,9 @@ class TradingManager:
                 logger.info(f"Sufficient cash available: ${ibkr_available_cash:,.0f} for ${strategy_allocation:,.0f} allocation")
                 execution_results["cash_limited"] = False
 
-            # Use effective allocation for all calculations
-            account_value = effective_allocation
+            # Use total portfolio value for risk calculations
+            # Account value = current portfolio value (positions + cash)
+            account_value = portfolio.total_market_value + portfolio.cash
 
             # 4. Run pre-trade risk checks
             logger.info("Running pre-trade risk validation...")
@@ -364,7 +373,8 @@ class TradingManager:
         """Disconnect from IBKR and clean up resources."""
         try:
             if self.ibkr_connector:
-                await self.ibkr_connector.disconnect()
+                await release_ibkr_connector()
+                self.ibkr_connector = None
 
             self.is_connected = False
             self.trading_session_active = False

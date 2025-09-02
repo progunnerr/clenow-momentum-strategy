@@ -67,7 +67,7 @@ class CircuitBreaker:
         self.is_tripped = False
         self.trip_reason = ""
         self.trip_time: datetime | None = None
-        self.daily_pnl_start = 0.0
+        self.daily_start_value: float | None = None  # Track starting value of the day
 
     def check_circuit_breaker(self, portfolio: Portfolio, account_value: float) -> RiskCheckOutput:
         """
@@ -89,9 +89,14 @@ class CircuitBreaker:
                 suggested_action="Manual intervention required to reset circuit breaker"
             )
 
-        # Check daily P&L
-        current_pnl = portfolio.total_market_value + portfolio.cash - account_value
-        daily_loss_pct = abs(current_pnl) / account_value if account_value > 0 else 0
+        # Initialize daily start value if not set (beginning of trading day)
+        if self.daily_start_value is None:
+            self.daily_start_value = account_value
+            logger.info(f"Circuit breaker initialized with daily start value: ${self.daily_start_value:,.2f}")
+
+        # Calculate daily P&L from the start of the day
+        daily_pnl = account_value - self.daily_start_value
+        daily_loss_pct = -daily_pnl / self.daily_start_value if self.daily_start_value > 0 and daily_pnl < 0 else 0
 
         if daily_loss_pct > self.max_daily_loss_pct:
             self._trip_breaker(f"Daily loss exceeded {self.max_daily_loss_pct:.1%}: {daily_loss_pct:.1%}")
@@ -148,6 +153,17 @@ class CircuitBreaker:
         self.trip_time = None
         logger.warning("Circuit breaker manually reset")
         return True
+
+    def reset_daily_tracking(self, new_start_value: float | None = None):
+        """
+        Reset daily tracking (typically at start of new trading day).
+
+        Args:
+            new_start_value: New starting value for the day. If None, will be set on next check.
+        """
+        self.daily_start_value = new_start_value
+        if new_start_value:
+            logger.info(f"Daily tracking reset with start value: ${new_start_value:,.2f}")
 
 
 class RiskControlSystem:

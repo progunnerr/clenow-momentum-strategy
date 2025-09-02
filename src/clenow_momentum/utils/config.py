@@ -61,6 +61,7 @@ def load_config() -> dict:
         "ibkr_account_id": os.getenv("IBKR_ACCOUNT_ID", ""),
         "ibkr_timeout": int(os.getenv("IBKR_TIMEOUT", "60")),
         "ibkr_auto_reconnect": os.getenv("IBKR_AUTO_RECONNECT", "true").lower() == "true",
+        "enable_ibkr_trading": os.getenv("ENABLE_IBKR_TRADING", "false").lower() == "true",
     }
 
     # Log key settings

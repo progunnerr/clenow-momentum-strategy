@@ -6,6 +6,7 @@ including order management, status tracking, and error handling.
 """
 
 import asyncio
+import sys
 from datetime import UTC, datetime
 
 from loguru import logger
@@ -122,6 +123,7 @@ class TradingExecutionEngine:
                 buy_results = await self._execute_order_batch(
                     buy_orders, portfolio, max_concurrent_orders
                 )
+                logger.info(f"Buy batch returned {len(buy_results)} executed orders")
                 executed_orders.extend(buy_results)
 
             # Wait for all orders to complete
@@ -186,7 +188,9 @@ class TradingExecutionEngine:
             tasks.append(task)
 
         # Wait for all orders to be submitted
+        logger.debug(f"Executing {len(tasks)} order tasks...")
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        logger.debug(f"Received {len(results)} results from order execution")
 
         # Process results
         executed_orders = []
@@ -195,12 +199,15 @@ class TradingExecutionEngine:
                 logger.error(f"Order {orders[i].ticker} failed: {result}")
                 orders[i].status = OrderStatus.FAILED
                 orders[i].error_message = str(result)
+            elif result is None:
+                logger.warning(f"Order {orders[i].ticker} returned None")
             else:
+                logger.debug(f"Order {orders[i].ticker} executed successfully")
                 executed_orders.append(result)
 
         return executed_orders
 
-    def _get_order_confirmation(self, order: RebalancingOrder) -> bool:
+    async def _get_order_confirmation(self, order: RebalancingOrder) -> bool:
         """
         Display order details in checkout style and get user confirmation.
         
@@ -273,8 +280,12 @@ class TradingExecutionEngine:
         print("  [n] Skip this order")
         print("  [a] Approve all remaining orders")
         print("  [q] Cancel all orders and quit")
+        sys.stdout.flush()  # Ensure output is displayed
         
-        response = input("\nYour choice: ").strip().lower()
+        # Use asyncio to run input in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, input, "\nYour choice: ")
+        response = response.strip().lower()
         
         if response == 'a':
             self.skip_confirmations = True
@@ -316,10 +327,11 @@ class TradingExecutionEngine:
         Returns:
             Updated order with execution status
         """
+        logger.debug(f"Starting execution for order: {order.ticker} ({order.order_type.value})")
         try:
             # Check if we need confirmation (not in dry run, not skipping)
             if not self.skip_confirmations:
-                if not self._get_order_confirmation(order):
+                if not await self._get_order_confirmation(order):
                     logger.info(f"Order for {order.ticker} skipped by user")
                     order.status = OrderStatus.CANCELLED
                     order.error_message = "Cancelled by user"

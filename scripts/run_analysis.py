@@ -17,7 +17,6 @@ from tabulate import tabulate
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Initialize logger configuration
-import asyncio
 
 from clenow_momentum.data.fetcher import get_sp500_tickers, get_stock_data
 from clenow_momentum.indicators.filters import apply_all_filters
@@ -28,7 +27,6 @@ from clenow_momentum.indicators.momentum import (
 from clenow_momentum.indicators.risk import apply_risk_limits, build_portfolio
 from clenow_momentum.strategy.market_regime import check_market_regime, should_trade_momentum
 from clenow_momentum.strategy.rebalancing import (
-    Portfolio,
     create_rebalancing_summary,
     generate_rebalancing_orders,
     load_portfolio_state,
@@ -37,8 +35,7 @@ from clenow_momentum.strategy.trading_schedule import (
     get_trading_calendar_summary,
     should_execute_trades,
 )
-from clenow_momentum.trading import get_trading_mode, validate_ibkr_config
-from clenow_momentum.trading.trading_manager import TradingManager
+from clenow_momentum.trading import get_trading_mode
 from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config
 
 
@@ -165,7 +162,7 @@ def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
 
 def display_portfolio_table(portfolio_df, config):
     """Display portfolio table with position sizing."""
-    print("🎯 PORTFOLIO WITH POSITION SIZING")
+    print("🎯 PORTFOLIO WITH RISK PARITY POSITION SIZING")
     print("=" * 60)
 
     # Prepare portfolio table data
@@ -193,7 +190,7 @@ def display_portfolio_table(portfolio_df, config):
         "ATR",
         "Shares",
         "Investment",
-        "% Port",
+        "Weight %",
         "Risk $",
     ]
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
@@ -217,6 +214,7 @@ def display_portfolio_table(portfolio_df, config):
     print(
         f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['strategy_allocation'] * config['risk_per_trade']:,.0f})"
     )
+    print(f"📊 Weighting Method: Risk Parity (Equal Risk Contribution)")
 
 
 def display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime):
@@ -643,19 +641,84 @@ def main(force_execution: bool = False):
 
     # Step 8: Rebalancing Analysis (if it's a rebalancing day and we have a portfolio)
     rebalancing_orders = []  # Initialize for IBKR integration
+    current_portfolio = None  # Will be loaded from IBKR or JSON
+
     if calendar_summary["is_rebalancing_day"] and not portfolio_df.empty:
         print()
         print("=" * 60)
         print("🔄 REBALANCING ANALYSIS")
         print("=" * 60)
 
-        # Load current portfolio
         from pathlib import Path
-
         portfolio_file = Path(config.get("portfolio_state_file", "data/portfolio_state.json"))
-        current_portfolio = load_portfolio_state(portfolio_file)
 
-        if current_portfolio.num_positions > 0:
+        # Determine portfolio source based on IBKR configuration
+        if config.get("enable_ibkr_trading", False):
+            # IBKR is enabled - sync real portfolio from broker
+            print("🔗 IBKR trading enabled - syncing real portfolio from broker...")
+
+            try:
+                # Import here to avoid issues when IBKR not configured
+                from src.clenow_momentum.trading.ibkr_factory import validate_ibkr_config
+                from src.clenow_momentum.trading.trading_manager import TradingManager
+
+                # Validate configuration first
+                ibkr_config_issues = validate_ibkr_config(config)
+                critical_issues = [issue for issue in ibkr_config_issues if "❌" in issue]
+
+                if critical_issues:
+                    print("❌ Cannot sync with IBKR due to configuration issues:")
+                    for issue in critical_issues:
+                        print(f"  {issue}")
+                    print("⚠️  Falling back to local portfolio file...")
+                    current_portfolio = load_portfolio_state(portfolio_file)
+                else:
+                    # Connect to IBKR and sync portfolio
+                    async def sync_ibkr_portfolio():
+                        try:
+                            async with TradingManager(config) as trading_manager:
+                                print(f"Status: {trading_manager.get_status_summary()}")
+
+                                # Sync portfolio from IBKR
+                                synced_portfolio = await trading_manager.sync_portfolio_only(
+                                    portfolio_file=portfolio_file
+                                )
+
+                                print(f"✅ Portfolio synced from IBKR: {synced_portfolio.num_positions} positions, ${synced_portfolio.cash:,.0f} cash")
+                                return synced_portfolio
+
+                        except Exception as e:
+                            print(f"❌ Failed to sync with IBKR: {e}")
+                            return None
+
+                    # Run the async sync operation
+                    import asyncio
+                    current_portfolio = asyncio.run(sync_ibkr_portfolio())
+
+                    if current_portfolio is None:
+                        print("⚠️  IBKR sync failed - cannot proceed with rebalancing")
+                        print("Please check your IBKR connection and try again.")
+                        # Don't use JSON fallback when IBKR is enabled but fails
+                        portfolio_df = pd.DataFrame()  # Clear portfolio to prevent trading
+
+            except ImportError as e:
+                print(f"❌ IBKR modules not available: {e}")
+                print("⚠️  Falling back to local portfolio file...")
+                current_portfolio = load_portfolio_state(portfolio_file)
+            except Exception as e:
+                print(f"❌ Unexpected error syncing with IBKR: {e}")
+                print("Cannot proceed with rebalancing when IBKR is enabled.")
+                portfolio_df = pd.DataFrame()  # Clear portfolio to prevent trading
+
+        else:
+            # IBKR not enabled - use local JSON file for simulation
+            print("📁 Using local portfolio file (simulation mode)...")
+            current_portfolio = load_portfolio_state(portfolio_file)
+
+        # Check if we have a valid portfolio to work with
+        if current_portfolio is None:
+            print("❌ No portfolio data available - cannot generate rebalancing orders")
+        elif current_portfolio.num_positions > 0:
             print(
                 f"📊 Current Portfolio: {current_portfolio.num_positions} positions, ${current_portfolio.cash:,.0f} cash"
             )
@@ -726,8 +789,13 @@ def main(force_execution: bool = False):
                     print(tabulate(order_data, headers=headers, tablefmt="grid"))
 
                 print(f"\n📈 BUY ORDERS ({len(buy_orders)} total):")
+                # Sort buy orders by momentum rank (lowest rank number = highest momentum)
+                buy_orders_sorted = sorted(
+                    buy_orders, 
+                    key=lambda x: getattr(x, 'momentum_rank', float('inf'))
+                )
                 order_data = []
-                for order in buy_orders:
+                for order in buy_orders_sorted:
                     order_data.append(
                         [
                             order.order_type.value,
@@ -749,18 +817,69 @@ def main(force_execution: bool = False):
             else:
                 print("✅ No rebalancing needed - portfolio is already aligned with targets")
         else:
-            print("📊 No existing portfolio found - this would be initial portfolio construction")
-            print(f"💼 Would invest in {len(portfolio_df)} positions")
+            # Empty portfolio - initial construction
+            print("📊 Empty portfolio detected - initial portfolio construction")
+            print(f"💰 Cash available: ${current_portfolio.cash:,.0f}")
+            print(f"💼 Target: {len(portfolio_df)} positions")
 
-            # Show initial portfolio creation message
+            # Generate initial BUY orders for all target positions
             print()
-            print("💾 Simulating initial portfolio creation...")
-            # Create initial portfolio from target
-            new_portfolio = Portfolio(cash=config["strategy_allocation"])
-            new_portfolio.last_rebalance_date = datetime.now(UTC)
-            # Note: In production, would create Position objects from portfolio_df
-            # save_portfolio_state(new_portfolio, portfolio_file)
-            print("✅ Portfolio state ready for tracking")
+            print("📝 Generating initial portfolio orders...")
+
+            # Create an empty portfolio for initial construction
+            if current_portfolio.cash < 1000:
+                # If no cash, use strategy allocation as starting cash
+                current_portfolio.cash = config["strategy_allocation"]
+                print(f"💵 Using strategy allocation: ${config['strategy_allocation']:,.0f}")
+
+            # Generate orders (will be all BUY orders since no current positions)
+            rebalancing_orders = generate_rebalancing_orders(
+                current_portfolio=current_portfolio,
+                target_portfolio=portfolio_df,
+                stock_data=stock_data,
+                account_value=config["strategy_allocation"],
+                cash_buffer=config.get("cash_buffer", 0.02),
+            )
+
+            if rebalancing_orders:
+                print(f"✅ Generated {len(rebalancing_orders)} initial BUY orders")
+
+                # Show summary for initial portfolio
+                total_investment = sum(o.order_value for o in rebalancing_orders)
+                print()
+                print("INITIAL PORTFOLIO CONSTRUCTION")
+                print("-" * 50)
+                print(f"Number of positions: {len(rebalancing_orders)}")
+                print(f"Total investment: ${total_investment:,.0f}")
+                print(f"Cash reserve: ${current_portfolio.cash - total_investment:,.0f}")
+
+                # Show the orders
+                print()
+                print("INITIAL BUY ORDERS")
+                print("-" * 50)
+                # Sort orders by momentum rank for display
+                rebalancing_orders_sorted = sorted(
+                    rebalancing_orders,
+                    key=lambda x: getattr(x, 'momentum_rank', float('inf'))
+                )
+                order_data = []
+                for order in rebalancing_orders_sorted[:10]:  # Show first 10
+                    order_data.append(
+                        [
+                            order.ticker,
+                            order.shares,
+                            f"${order.current_price:.2f}",
+                            f"${order.order_value:,.0f}",
+                        ]
+                    )
+
+                headers = ["Ticker", "Shares", "Price", "Value"]
+                print(tabulate(order_data, headers=headers, tablefmt="grid"))
+
+                if len(rebalancing_orders_sorted) > 10:
+                    print(f"... and {len(rebalancing_orders_sorted) - 10} more positions")
+            else:
+                print("⚠️  Could not generate initial orders - check cash availability")
 
     elif calendar_summary["is_rebalancing_day"] and portfolio_df.empty:
         print()
@@ -862,6 +981,16 @@ def main(force_execution: bool = False):
             print("   - No rebalancing orders generated")
 
     print("\n✅ Analysis complete!")
+    
+    # Clean up IBKR connection if it was used
+    if config.get("enable_ibkr_trading", False):
+        try:
+            from src.clenow_momentum.trading.ibkr_singleton import force_disconnect_ibkr
+            asyncio.run(force_disconnect_ibkr())
+            logger.debug("IBKR connection cleaned up")
+        except Exception:
+            pass  # Ignore cleanup errors
+    
     return 0
 
 

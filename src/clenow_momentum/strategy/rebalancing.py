@@ -483,7 +483,10 @@ def generate_rebalancing_orders(
         reasons = []
         if "momentum_score" in target_row:
             reasons.append(f"Momentum score: {target_row['momentum_score']:.3f}")
-        if "momentum_rank" in target_row:
+        # Use portfolio_rank as the display rank (portfolio is already sorted by momentum)
+        if "portfolio_rank" in target_row:
+            reasons.append(f"Rank #{target_row['portfolio_rank']}")
+        elif "momentum_rank" in target_row:
             reasons.append(f"Rank #{target_row['momentum_rank']}")
         reasons.append("New position entry based on strong momentum signal")
         
@@ -500,7 +503,10 @@ def generate_rebalancing_orders(
         # Add momentum metrics as attributes for display
         if "momentum_score" in target_row:
             order.momentum_score = target_row["momentum_score"]
-        if "momentum_rank" in target_row:
+        # Use portfolio_rank as momentum_rank (portfolio is already sorted by momentum)
+        if "portfolio_rank" in target_row:
+            order.momentum_rank = target_row["portfolio_rank"]
+        elif "momentum_rank" in target_row:
             order.momentum_rank = target_row["momentum_rank"]
         if "r_squared" in target_row:
             order.r_squared = target_row["r_squared"]
@@ -539,7 +545,10 @@ def generate_rebalancing_orders(
             # Add momentum metrics if available
             if "momentum_score" in target_row:
                 order.momentum_score = target_row["momentum_score"]
-            if "momentum_rank" in target_row:
+            # Use portfolio_rank as momentum_rank (portfolio is already sorted by momentum)
+            if "portfolio_rank" in target_row:
+                order.momentum_rank = target_row["portfolio_rank"]
+            elif "momentum_rank" in target_row:
                 order.momentum_rank = target_row["momentum_rank"]
             orders.append(order)
             available_cash -= order_value
