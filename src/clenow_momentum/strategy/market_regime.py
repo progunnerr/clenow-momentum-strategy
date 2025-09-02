@@ -392,6 +392,282 @@ def get_sp500_ma_status(period: int = 200) -> dict:
         return {'error': str(e)}
 
 
+def calculate_market_breadth(tickers: list = None, period: int = 200, stock_data: pd.DataFrame = None) -> dict:
+    """
+    Calculate market breadth - percentage of S&P 500 stocks above their moving average.
+    
+    Args:
+        tickers: List of S&P 500 tickers (if None, will fetch them)
+        period: Moving average period (default 200)
+        stock_data: Pre-fetched stock data (optional, for efficiency)
+    
+    Returns:
+        Dictionary with breadth statistics
+    """
+    logger.info(f"Calculating market breadth (% of stocks above {period}-day MA)...")
+    
+    # Check if we have enough data
+    if stock_data is not None and hasattr(stock_data, 'index'):
+        available_days = len(stock_data.index)
+        if available_days < period:
+            logger.error(f"Insufficient data: Only {available_days} days available but {period} days needed for MA calculation")
+            return {'error': f'Insufficient data: {available_days} days available, {period} needed'}
+    
+    try:
+        # Get tickers if not provided
+        if tickers is None:
+            from clenow_momentum.data.fetcher import get_sp500_tickers
+            tickers = get_sp500_tickers()
+            if not tickers:
+                logger.error("Could not fetch S&P 500 tickers")
+                return {'error': 'Could not fetch tickers'}
+        
+        # Use ALL tickers for accurate breadth
+        sample_tickers = tickers  # Analyze all stocks, not just a sample
+        sample_size = len(sample_tickers)
+        
+        # Use pre-fetched data if available, otherwise fetch
+        if stock_data is not None:
+            logger.debug(f"Using pre-fetched data for {sample_size} stocks")
+            logger.debug(f"Stock data shape: {stock_data.shape if hasattr(stock_data, 'shape') else 'unknown'}")
+            logger.debug(f"Stock data type: {type(stock_data)}")
+            
+            # Save debug data to understand structure
+            if is_debug_mode():
+                save_debug_data(stock_data, "breadth_stock_data")
+            
+            data = stock_data
+        else:
+            # Fetch data for all tickers
+            logger.debug(f"Fetching data for {sample_size} stocks to calculate breadth...")
+            import yfinance as yf
+            
+            # Download data for multiple tickers - this will take a moment
+            # Using threads=True for parallel downloads
+            data = yf.download(
+                sample_tickers,
+                period="1y",
+                auto_adjust=True,
+                group_by="ticker",
+                progress=False,
+                threads=True
+            )
+            
+            if data is None or data.empty:
+                logger.error("Could not fetch stock data for breadth calculation")
+                return {'error': 'Could not fetch stock data'}
+        
+        # Calculate how many stocks are above their MA
+        above_ma_count = 0
+        below_ma_count = 0
+        no_data_count = 0
+        
+        # Log data structure for debugging
+        logger.debug(f"Data columns type: {type(data.columns) if hasattr(data, 'columns') else 'no columns'}")
+        if hasattr(data, 'columns'):
+            if isinstance(data.columns, pd.MultiIndex):
+                logger.debug(f"MultiIndex levels[0] sample: {list(data.columns.levels[0])[:5]}")
+                logger.debug(f"MultiIndex levels[1] sample: {list(data.columns.levels[1])[:5] if len(data.columns.levels) > 1 else 'N/A'}")
+            else:
+                logger.debug(f"Regular columns sample: {list(data.columns)[:5]}")
+        
+        for ticker in sample_tickers:
+            try:
+                close_prices = None
+                
+                # Extract close prices for this ticker
+                # Handle both single ticker and multi-ticker data structures
+                if hasattr(data, 'columns') and isinstance(data.columns, pd.MultiIndex):
+                    # Multi-ticker with MultiIndex columns (group_by='ticker')
+                    # The structure from yfinance is: MultiIndex[('TICKER', 'Price')]
+                    # where Price can be 'Open', 'High', 'Low', 'Close', 'Volume'
+                    
+                    # Check if ticker exists in the data
+                    if (ticker, 'Close') in data.columns:
+                        try:
+                            close_prices = data[(ticker, 'Close')]
+                        except Exception as e:
+                            logger.debug(f"Error extracting {ticker}: {e}")
+                            no_data_count += 1
+                            continue
+                    else:
+                        # Ticker not in data
+                        no_data_count += 1
+                        continue
+                elif 'Close' in data.columns:
+                    # Simple structure with 'Close' column
+                    close_prices = data['Close']
+                else:
+                    # Unknown structure
+                    logger.debug(f"Unknown data structure for {ticker}")
+                    no_data_count += 1
+                    continue
+                
+                if close_prices is None or (hasattr(close_prices, 'empty') and close_prices.empty):
+                    no_data_count += 1
+                    continue
+                
+                # Drop NaN values from close prices
+                close_prices = close_prices.dropna()
+                
+                if len(close_prices) < period:
+                    # Not enough data for MA calculation
+                    no_data_count += 1
+                    continue
+                
+                # Calculate MA
+                ma = close_prices.rolling(window=period, min_periods=period).mean()
+                
+                # Check if current price is above MA
+                if len(close_prices) > 0 and len(ma) > 0:
+                    current_price = close_prices.iloc[-1]
+                    current_ma = ma.iloc[-1]
+                else:
+                    no_data_count += 1
+                    continue
+                
+                if pd.notna(current_ma) and pd.notna(current_price):
+                    if current_price > current_ma:
+                        above_ma_count += 1
+                    else:
+                        below_ma_count += 1
+                else:
+                    no_data_count += 1
+                    
+            except Exception as e:
+                logger.debug(f"Error processing {ticker}: {e}")
+                no_data_count += 1
+        
+        # Log results
+        logger.info(f"Breadth calculation complete: {above_ma_count} above MA, {below_ma_count} below MA, {no_data_count} no data")
+        
+        # Calculate percentages
+        valid_stocks = above_ma_count + below_ma_count
+        if valid_stocks > 0:
+            breadth_pct = (above_ma_count / valid_stocks) * 100
+            
+            # Determine breadth strength
+            if breadth_pct >= 70:
+                breadth_strength = "Strong Bullish"
+            elif breadth_pct >= 60:
+                breadth_strength = "Bullish"
+            elif breadth_pct >= 50:
+                breadth_strength = "Neutral-Bullish"
+            elif breadth_pct >= 40:
+                breadth_strength = "Neutral-Bearish"
+            elif breadth_pct >= 30:
+                breadth_strength = "Bearish"
+            else:
+                breadth_strength = "Strong Bearish"
+            
+            return {
+                'breadth_pct': round(breadth_pct, 1),
+                'above_ma': above_ma_count,
+                'below_ma': below_ma_count,
+                'total_checked': valid_stocks,
+                'no_data': no_data_count,
+                'sample_size': sample_size,
+                'breadth_strength': breadth_strength,
+                'ma_period': period
+            }
+        else:
+            return {'error': 'Could not calculate breadth - no valid data'}
+            
+    except Exception as e:
+        logger.error(f"Error calculating market breadth: {e}")
+        return {'error': str(e)}
+
+
+def calculate_absolute_momentum(period_months: int = 12) -> dict:
+    """
+    Calculate absolute momentum of S&P 500 (12-month return).
+    
+    Args:
+        period_months: Number of months for return calculation (default 12)
+    
+    Returns:
+        Dictionary with absolute momentum metrics
+    """
+    logger.info(f"Calculating S&P 500 absolute momentum ({period_months}-month return)...")
+    
+    try:
+        # Get S&P 500 data for the period
+        period_str = f"{period_months + 1}mo"  # Extra month to ensure we have enough data
+        spy_data = get_sp500_data(period_str)
+        
+        if spy_data is None or spy_data.empty:
+            logger.error("Could not fetch S&P 500 data for momentum calculation")
+            return {'error': 'Could not fetch market data'}
+        
+        close_prices = spy_data['Close']
+        if isinstance(close_prices, pd.DataFrame):
+            close_prices = close_prices.squeeze()
+        
+        # Calculate returns for different periods
+        current_price = float(close_prices.iloc[-1])
+        
+        # Calculate N-month return
+        days_in_month = 21  # Trading days
+        lookback_days = period_months * days_in_month
+        
+        if len(close_prices) > lookback_days:
+            past_price = float(close_prices.iloc[-lookback_days])
+            period_return = ((current_price / past_price) - 1) * 100
+        else:
+            # Fallback to earliest available
+            past_price = float(close_prices.iloc[0])
+            actual_days = len(close_prices)
+            period_return = ((current_price / past_price) - 1) * 100
+            logger.warning(f"Only {actual_days} days available for {period_months}-month return calculation")
+        
+        # Also calculate other useful momentum periods
+        returns = {}
+        
+        # 1-month return
+        if len(close_prices) > 21:
+            returns['1m'] = ((current_price / float(close_prices.iloc[-21])) - 1) * 100
+        
+        # 3-month return
+        if len(close_prices) > 63:
+            returns['3m'] = ((current_price / float(close_prices.iloc[-63])) - 1) * 100
+        
+        # 6-month return
+        if len(close_prices) > 126:
+            returns['6m'] = ((current_price / float(close_prices.iloc[-126])) - 1) * 100
+        
+        # 12-month return
+        if len(close_prices) > 252:
+            returns['12m'] = ((current_price / float(close_prices.iloc[-252])) - 1) * 100
+        
+        # Determine momentum strength
+        if period_return > 20:
+            momentum_strength = "Strong Positive"
+        elif period_return > 10:
+            momentum_strength = "Positive"
+        elif period_return > 0:
+            momentum_strength = "Weak Positive"
+        elif period_return > -10:
+            momentum_strength = "Weak Negative"
+        elif period_return > -20:
+            momentum_strength = "Negative"
+        else:
+            momentum_strength = "Strong Negative"
+        
+        return {
+            'period_return': round(period_return, 2),
+            'period_months': period_months,
+            'current_price': round(current_price, 2),
+            'past_price': round(past_price, 2),
+            'momentum_strength': momentum_strength,
+            'all_returns': {k: round(v, 2) for k, v in returns.items()},
+            'bullish': period_return > 0
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating absolute momentum: {e}")
+        return {'error': str(e)}
+
+
 def should_trade_momentum(market_regime: dict = None) -> tuple[bool, str]:
     """
     Determine if momentum trading should be active based on market regime.

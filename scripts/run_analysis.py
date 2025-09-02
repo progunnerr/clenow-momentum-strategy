@@ -84,12 +84,13 @@ def print_account_sizing(config):
 
 def fetch_and_process_data(tickers, config):
     """Fetch stock data and calculate momentum scores."""
-    # Get stock data
-    print("Step 2: Fetching stock data (6 months)...")
+    # Get stock data - need enough for 200-day MA plus some buffer
+    # 200 trading days ≈ 10 months, so fetch 1 year to be safe
+    print("Step 2: Fetching stock data (1 year for 200-day MA)...")
     print("⏳ This may take a moment...")
     print(f"📈 Processing all {len(tickers)} S&P 500 stocks")
 
-    stock_data = get_stock_data(tickers, period="6mo")
+    stock_data = get_stock_data(tickers, period="1y")
 
     if stock_data is None:
         print("❌ Could not retrieve stock data. Exiting.")
@@ -279,8 +280,21 @@ def main():
     trading_allowed, regime_reason = should_trade_momentum(market_regime)
     
     # Get detailed market status
-    from clenow_momentum.strategy.market_regime import get_sp500_ma_status
+    from clenow_momentum.strategy.market_regime import (
+        get_sp500_ma_status,
+        calculate_market_breadth,
+        calculate_absolute_momentum
+    )
     detailed_status = get_sp500_ma_status(period=config['market_regime_period'])
+    
+    # Calculate additional market metrics
+    # Pass stock_data to breadth calculation to reuse already fetched data
+    breadth_data = calculate_market_breadth(
+        tickers=tickers, 
+        period=config['market_regime_period'],
+        stock_data=stock_data  # Reuse the data we already fetched
+    )
+    momentum_data = calculate_absolute_momentum(period_months=12)
 
     print("\n" + "=" * 60)
     print("MARKET REGIME ANALYSIS")
@@ -325,6 +339,102 @@ def main():
         print(f"\n📊 Last 30 Days:")
         print(f"   • Days above {config['market_regime_period']}MA: {detailed_status.get('recent_30d_above_ma', 0)}")
         print(f"   • Days below {config['market_regime_period']}MA: {detailed_status.get('recent_30d_below_ma', 0)}")
+    
+    # Display Market Breadth
+    print("\n" + "-" * 40)
+    print("MARKET BREADTH ANALYSIS")
+    print("-" * 40)
+    
+    if 'error' not in breadth_data:
+        breadth_pct = breadth_data.get('breadth_pct', 0)
+        breadth_emoji = "🟢" if breadth_pct >= 60 else "🟡" if breadth_pct >= 50 else "🔴"
+        
+        ma_period_used = breadth_data.get('ma_period', config['market_regime_period'])
+        
+        print(f"{breadth_emoji} Market Breadth: {breadth_pct:.1f}% of S&P 500 stocks above {ma_period_used}-day MA")
+        print(f"   • Stocks above MA: {breadth_data.get('above_ma', 0)}/{breadth_data.get('total_checked', 0)}")
+        print(f"   • Breadth Strength: {breadth_data.get('breadth_strength', 'Unknown')}")
+        print(f"   • Coverage: {breadth_data.get('total_checked', 0)}/{breadth_data.get('sample_size', 0)} stocks with valid data")
+        
+        # Breadth interpretation
+        if breadth_pct >= 60:
+            print("   ✅ Broad participation - Healthy bull market")
+        elif breadth_pct >= 50:
+            print("   ⚠️ Neutral breadth - Use caution")
+        else:
+            print("   ❌ Weak breadth - Bear market conditions")
+    else:
+        print(f"   ⚠️ Could not calculate breadth: {breadth_data.get('error', 'Unknown error')}")
+    
+    # Display Absolute Momentum
+    print("\n" + "-" * 40)
+    print("ABSOLUTE MOMENTUM ANALYSIS")
+    print("-" * 40)
+    
+    if 'error' not in momentum_data:
+        period_return = momentum_data.get('period_return', 0)
+        momentum_emoji = "🚀" if period_return > 10 else "📈" if period_return > 0 else "📉"
+        
+        print(f"{momentum_emoji} S&P 500 12-Month Return: {period_return:+.2f}%")
+        print(f"   • Momentum Strength: {momentum_data.get('momentum_strength', 'Unknown')}")
+        
+        # Show multiple timeframe returns if available
+        all_returns = momentum_data.get('all_returns', {})
+        if all_returns:
+            print(f"\n   Returns by Period:")
+            for period, ret in sorted(all_returns.items()):
+                print(f"   • {period:>3}: {ret:+6.2f}%")
+        
+        # Momentum interpretation
+        if period_return > 0:
+            print(f"\n   ✅ Positive absolute momentum - Bull bias confirmed")
+        else:
+            print(f"\n   ❌ Negative absolute momentum - Bear market conditions")
+    else:
+        print(f"   ⚠️ Could not calculate momentum: {momentum_data.get('error', 'Unknown error')}")
+    
+    # Combined Market Assessment
+    print("\n" + "-" * 40)
+    print("COMBINED MARKET ASSESSMENT")
+    print("-" * 40)
+    
+    # Count bullish signals
+    bullish_signals = 0
+    total_signals = 0
+    
+    # 1. Price vs MA
+    if market_regime.get('regime') == 'bullish':
+        bullish_signals += 1
+    total_signals += 1
+    
+    # 2. Breadth
+    if 'error' not in breadth_data and breadth_data.get('breadth_pct', 0) >= 50:
+        bullish_signals += 1
+    if 'error' not in breadth_data:
+        total_signals += 1
+    
+    # 3. Absolute Momentum
+    if 'error' not in momentum_data and momentum_data.get('bullish', False):
+        bullish_signals += 1
+    if 'error' not in momentum_data:
+        total_signals += 1
+    
+    # Overall assessment
+    signal_strength = (bullish_signals / total_signals * 100) if total_signals > 0 else 0
+    
+    print(f"📊 Bullish Signals: {bullish_signals}/{total_signals} ({signal_strength:.0f}%)")
+    print(f"   • SPX vs 200MA: {'✅ Above' if market_regime.get('regime') == 'bullish' else '❌ Below'}")
+    if 'error' not in breadth_data:
+        print(f"   • Market Breadth: {'✅ Positive' if breadth_data.get('breadth_pct', 0) >= 50 else '❌ Negative'} ({breadth_data.get('breadth_pct', 0):.1f}%)")
+    if 'error' not in momentum_data:
+        print(f"   • Absolute Momentum: {'✅ Positive' if momentum_data.get('bullish', False) else '❌ Negative'} ({momentum_data.get('period_return', 0):+.1f}%)")
+    
+    if signal_strength >= 66:
+        print("\n🟢 STRONG BULL MARKET - All systems go for momentum trading")
+    elif signal_strength >= 33:
+        print("\n🟡 MIXED SIGNALS - Trade with caution, consider reduced position sizes")
+    else:
+        print("\n🔴 BEAR MARKET CONDITIONS - Consider defensive positioning")
     
     print("=" * 60)
     print()
