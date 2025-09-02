@@ -273,15 +273,60 @@ def main():
 
     valid_scores = momentum_df.dropna(subset=["momentum_score"])
 
-    # Step 4: Check market regime
+    # Step 4: Check market regime with enhanced analysis
     print(f"Step 4: Checking market regime (SPX vs {config['market_regime_period']}-day MA)...")
     market_regime = check_market_regime(period=config['market_regime_period'])
     trading_allowed, regime_reason = should_trade_momentum(market_regime)
+    
+    # Get detailed market status
+    from clenow_momentum.strategy.market_regime import get_sp500_ma_status
+    detailed_status = get_sp500_ma_status(period=config['market_regime_period'])
 
+    print("\n" + "=" * 60)
+    print("MARKET REGIME ANALYSIS")
+    print("=" * 60)
+    
     print(f"📊 Market Regime: {market_regime.get('regime', 'unknown').upper()}")
-    print(f"📈 SPX: ${market_regime.get('current_price', 'N/A')} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A')}")
+    print(f"📈 SPX: ${market_regime.get('current_price', 'N/A'):,.2f} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A'):,.2f}")
+    
+    if market_regime.get('price_vs_ma') is not None:
+        price_vs_ma_pct = market_regime.get('price_vs_ma') * 100
+        print(f"📍 Distance from MA: {price_vs_ma_pct:+.2f}%")
+    
     print(f"🎯 Trading Status: {'✅ ALLOWED' if trading_allowed else '⛔ SUSPENDED'}")
     print(f"📝 Reason: {regime_reason}")
+    
+    # Display enhanced market metrics if available
+    if 'error' not in detailed_status:
+        print("\n" + "-" * 40)
+        print("REGIME HISTORY & METRICS")
+        print("-" * 40)
+        
+        # Current regime information
+        print(f"🏛️ Current Regime: {detailed_status.get('regime_type', 'Unknown')}")
+        print(f"📅 S&P 500 {detailed_status.get('crossover_type', '')} {config['market_regime_period']}MA on: {detailed_status.get('crossover_date', 'N/A')}")
+        print(f"⏱️ Days in {detailed_status.get('regime_type', 'regime')}: {detailed_status.get('days_since_crossover', 0)} days")
+        print(f"📊 Consecutive days {('above' if detailed_status.get('above_ma') else 'below')} MA: {detailed_status.get('consecutive_days_current_regime', 0)} days")
+        
+        # Distance metrics
+        print(f"\n📈 Distance from MA Statistics (since {detailed_status.get('crossover_date', 'N/A')}):")
+        print(f"   • Current: {detailed_status.get('price_vs_ma_pct', 0):+.2f}%")
+        print(f"   • Maximum: {detailed_status.get('max_distance_from_ma_pct', 0):+.2f}%")
+        print(f"   • Minimum: {detailed_status.get('min_distance_from_ma_pct', 0):+.2f}%")
+        print(f"   • Average: {detailed_status.get('avg_distance_from_ma_pct', 0):+.2f}%")
+        
+        # MA trend
+        ma_trend = detailed_status.get('ma_trend', 'unknown')
+        ma_slope = detailed_status.get('ma_slope_10d', 0)
+        trend_emoji = "📈" if ma_trend == "rising" else "📉" if ma_trend == "falling" else "➡️"
+        print(f"\n{trend_emoji} {config['market_regime_period']}MA Trend: {ma_trend.capitalize()} (10-day slope: ${ma_slope:.2f}/day)")
+        
+        # Recent behavior
+        print(f"\n📊 Last 30 Days:")
+        print(f"   • Days above {config['market_regime_period']}MA: {detailed_status.get('recent_30d_above_ma', 0)}")
+        print(f"   • Days below {config['market_regime_period']}MA: {detailed_status.get('recent_30d_below_ma', 0)}")
+    
+    print("=" * 60)
     print()
 
     # Step 5: Apply trading filters to find eligible stocks
