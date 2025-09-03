@@ -7,6 +7,23 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 
+def convert_ticker_for_yfinance(ticker: str) -> str:
+    """
+    Convert ticker symbols to yfinance format.
+    
+    yfinance uses hyphens instead of dots for certain tickers like:
+    - BRK.B -> BRK-B (Berkshire Hathaway Class B)
+    - BF.B -> BF-B (Brown-Forman Class B)
+    
+    Args:
+        ticker: Original ticker symbol
+        
+    Returns:
+        Converted ticker symbol for yfinance
+    """
+    return ticker.replace(".", "-")
+
+
 def _try_spy_holdings() -> list[str] | None:
     """Try to get S&P 500 tickers from SPY ETF holdings."""
     try:
@@ -196,6 +213,8 @@ def get_sp500_tickers() -> list[str]:
         return get_sp500_tickers_yfinance()
 
     tickers = df["Symbol"].tolist()
+    # Convert tickers to yfinance format (dots to hyphens)
+    tickers = [convert_ticker_for_yfinance(ticker) for ticker in tickers]
     logger.success(f"Successfully fetched {len(tickers)} S&P 500 tickers")
     return tickers
 
@@ -212,8 +231,10 @@ def get_stock_data(tickers: list[str], period: str = "1y") -> pd.DataFrame | Non
         DataFrame with OHLCV data for all tickers, or None if fetch fails
     """
     try:
-        logger.info(f"Fetching stock data for {len(tickers)} tickers (period: {period})")
-        data = yf.download(tickers, period=period, group_by="ticker", auto_adjust=True)
+        # Convert tickers to yfinance format (dots to hyphens)
+        converted_tickers = [convert_ticker_for_yfinance(ticker) for ticker in tickers]
+        logger.info(f"Fetching stock data for {len(converted_tickers)} tickers (period: {period})")
+        data = yf.download(converted_tickers, period=period, group_by="ticker", auto_adjust=True)
         if data is not None and not data.empty:
             logger.success(f"Successfully fetched stock data: {data.shape}")
         else:
