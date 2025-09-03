@@ -54,14 +54,23 @@ def load_config() -> dict:
         "portfolio_state_file": os.getenv("PORTFOLIO_STATE_FILE", "data/portfolio_state.json"),
         "bypass_wednesday_check": os.getenv("BYPASS_WEDNESDAY_CHECK", "false").lower()
         == "true",  # For testing - also triggers rebalancing
-        # IBKR Integration Settings
+        # IBKR Integration Settings (nested under "ibkr" key)
+        "ibkr": {
+            "host": os.getenv("IBKR_HOST", "127.0.0.1"),
+            "port": int(os.getenv("IBKR_PORT", "7497")),  # Default to TWS Paper trading
+            "client_id": int(os.getenv("IBKR_CLIENT_ID", "1")),
+            "account_id": os.getenv("IBKR_ACCOUNT_ID", ""),
+            "timeout": int(os.getenv("IBKR_TIMEOUT", "60")),
+            "auto_reconnect": os.getenv("IBKR_AUTO_RECONNECT", "true").lower() == "true",
+        },
+        "enable_ibkr_trading": os.getenv("ENABLE_IBKR_TRADING", "false").lower() == "true",
+        # Keep flat versions for backward compatibility
         "ibkr_host": os.getenv("IBKR_HOST", "127.0.0.1"),
-        "ibkr_port": int(os.getenv("IBKR_PORT", "7497")),  # Default to TWS Paper trading
+        "ibkr_port": int(os.getenv("IBKR_PORT", "7497")),
         "ibkr_client_id": int(os.getenv("IBKR_CLIENT_ID", "1")),
         "ibkr_account_id": os.getenv("IBKR_ACCOUNT_ID", ""),
         "ibkr_timeout": int(os.getenv("IBKR_TIMEOUT", "60")),
         "ibkr_auto_reconnect": os.getenv("IBKR_AUTO_RECONNECT", "true").lower() == "true",
-        "enable_ibkr_trading": os.getenv("ENABLE_IBKR_TRADING", "false").lower() == "true",
     }
 
     # Log key settings
@@ -145,3 +154,67 @@ def validate_config(config: dict) -> list:
         warnings.append("ℹ️  More than 25 positions may be over-diversified")
 
     return warnings
+
+
+def validate_ibkr_config(config: dict = None) -> list[str]:
+    """
+    Validate IBKR configuration and return any issues.
+
+    Args:
+        config: Configuration dictionary (loads from env if None)
+
+    Returns:
+        List of validation warnings/errors for IBKR configuration
+    """
+    if config is None:
+        config = load_config()
+
+    issues = []
+
+    # Check required settings
+    ibkr_config = config.get("ibkr", {})
+    
+    if not ibkr_config.get("host"):
+        issues.append("❌ IBKR_HOST is required")
+
+    if not ibkr_config.get("port"):
+        issues.append("❌ IBKR_PORT is required")
+
+    # Check port validity
+    port = ibkr_config.get("port", 0)
+    valid_ports = [7496, 7497, 4001, 4002]  # Standard TWS/Gateway ports
+    if port and port not in valid_ports:
+        issues.append(
+            f"⚠️ IBKR_PORT {port} is not a standard port "
+            f"(expected: {valid_ports})"
+        )
+
+    # Check client ID
+    if ibkr_config.get("client_id", 0) < 1:
+        issues.append("❌ IBKR_CLIENT_ID must be >= 1")
+
+    # Check timeout
+    if ibkr_config.get("timeout", 60) < 10:
+        issues.append("⚠️ IBKR_TIMEOUT < 10 seconds may cause connection issues")
+
+    # Trading mode detection and warnings
+    if port:
+        from ..data_sources.ibkr_client import get_trading_mode_from_port
+        
+        trading_mode = get_trading_mode_from_port(port)
+        
+        if trading_mode == "live":
+            issues.append("🚨 LIVE TRADING MODE DETECTED - Real money will be used!")
+            if port == 7496:
+                issues.append("📊 Detected: TWS Live Trading (port 7496)")
+            elif port == 4001:
+                issues.append("📊 Detected: IB Gateway Live Trading (port 4001)")
+        elif trading_mode == "paper":
+            if port == 7497:
+                issues.append("✅ Detected: TWS Paper Trading (port 7497)")
+            elif port == 4002:
+                issues.append("✅ Detected: IB Gateway Paper Trading (port 4002)")
+        else:
+            issues.append(f"⚠️ Unknown trading mode for port {port}")
+
+    return issues

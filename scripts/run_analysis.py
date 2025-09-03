@@ -36,7 +36,7 @@ from clenow_momentum.strategy.trading_schedule import (
     should_execute_trades,
 )
 from clenow_momentum.trading import get_trading_mode
-from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config
+from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config, validate_ibkr_config
 
 
 def print_trading_schedule_status(config):
@@ -659,7 +659,6 @@ def main(force_execution: bool = False):
 
             try:
                 # Import here to avoid issues when IBKR not configured
-                from clenow_momentum.trading.ibkr_factory import validate_ibkr_config
                 from clenow_momentum.trading.trading_manager import TradingManager
 
                 # Validate configuration first
@@ -674,26 +673,18 @@ def main(force_execution: bool = False):
                     current_portfolio = load_portfolio_state(portfolio_file)
                 else:
                     # Connect to IBKR and sync portfolio
-                    async def sync_ibkr_portfolio():
-                        try:
-                            async with TradingManager(config) as trading_manager:
-                                print(f"Status: {trading_manager.get_status_summary()}")
+                    try:
+                        with TradingManager(config) as trading_manager:
+                            print(f"Status: {trading_manager.get_status_summary()}")
 
-                                # Sync portfolio from IBKR
-                                synced_portfolio = await trading_manager.sync_portfolio_only(
-                                    portfolio_file=portfolio_file
-                                )
+                            # Sync portfolio from IBKR
+                            current_portfolio = trading_manager.sync_portfolio_only(portfolio_file=portfolio_file)
 
-                                print(f"✅ Portfolio synced from IBKR: {synced_portfolio.num_positions} positions, ${synced_portfolio.cash:,.0f} cash")
-                                return synced_portfolio
+                            print(f"✅ Portfolio synced from IBKR: {current_portfolio.num_positions} positions, ${current_portfolio.cash:,.0f} cash")
 
-                        except Exception as e:
-                            print(f"❌ Failed to sync with IBKR: {e}")
-                            return None
-
-                    # Run the async sync operation
-                    import asyncio
-                    current_portfolio = asyncio.run(sync_ibkr_portfolio())
+                    except Exception as e:
+                        print(f"❌ Failed to sync with IBKR: {e}")
+                        current_portfolio = None
 
                     if current_portfolio is None:
                         print("⚠️  IBKR sync failed - cannot proceed with rebalancing")
@@ -912,25 +903,22 @@ def main(force_execution: bool = False):
                 else:
                     print(f"Trading mode: {trading_mode.upper()}")
 
-                # Execute trading using async wrapper
-                async def execute_ibkr_trading():
-                    try:
-                        async with TradingManager(config) as trading_manager:
-                            print(f"Status: {trading_manager.get_status_summary()}")
-                            sys.stdout.flush()  # Ensure status is shown before confirmations
+                # Execute trading
+                try:
+                    with TradingManager(config) as trading_manager:
+                        print(f"Status: {trading_manager.get_status_summary()}")
+                        sys.stdout.flush()  # Ensure status is shown before confirmations
 
-                            return await trading_manager.execute_rebalancing(
-                                rebalancing_orders=rebalancing_orders,
-                                dry_run=False,  # Use actual trading mode from config
-                                force_execution=force_execution,
-                            )
+                        # Execute rebalancing
+                        execution_results = trading_manager.execute_rebalancing(
+                            rebalancing_orders=rebalancing_orders,
+                            dry_run=False,  # Use actual trading mode from config
+                            force_execution=force_execution,
+                        )
 
-                    except Exception as e:
-                        print(f"❌ IBKR trading execution failed: {e}")
-                        return None
-
-                # Run the trading execution
-                execution_results = asyncio.run(execute_ibkr_trading())
+                except Exception as e:
+                    print(f"❌ IBKR trading execution failed: {e}")
+                    execution_results = None
 
                 if execution_results:
                     print("\n🎯 TRADING EXECUTION RESULTS")
@@ -975,9 +963,8 @@ def main(force_execution: bool = False):
     # Clean up IBKR connection if it was used
     if config.get("enable_ibkr_trading", False):
         try:
-            from clenow_momentum.trading.ibkr_singleton import force_disconnect_ibkr
-            asyncio.run(force_disconnect_ibkr())
-            logger.debug("IBKR connection cleaned up")
+            # Connection cleanup is handled by context manager
+            pass
         except Exception:
             pass  # Ignore cleanup errors
     

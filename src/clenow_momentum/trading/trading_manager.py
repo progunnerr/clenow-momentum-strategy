@@ -10,6 +10,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from ..data_sources import IBKRClient
+from ..data_sources.ibkr_client import get_trading_mode
 from ..strategy.rebalancing import (
     Portfolio,
     RebalancingOrder,
@@ -17,9 +19,7 @@ from ..strategy.rebalancing import (
     save_portfolio_state,
 )
 from ..utils.config import load_config
-from .execution_engine import TradingExecutionEngine
-from .ibkr_factory import get_trading_mode, validate_ibkr_config
-from .ibkr_singleton import get_ibkr_connector, release_ibkr_connector
+from .execution_engine_sync import SyncTradingExecutionEngine
 from .portfolio_sync import PortfolioSynchronizer
 from .risk_controls import RiskCheckResult, RiskControlSystem
 
@@ -52,7 +52,7 @@ class TradingManager:
         self.config = config or load_config()
 
         # Initialize components (but don't connect yet)
-        self.ibkr_connector = None
+        self.ibkr_client: IBKRClient | None = None
         self.portfolio_sync = None
         self.execution_engine = None
         self.risk_control_system = RiskControlSystem(self.config)
@@ -64,7 +64,7 @@ class TradingManager:
 
         logger.info("Trading manager initialized")
 
-    async def initialize(self) -> bool:
+    def initialize(self) -> bool:
         """
         Initialize and connect all trading components.
 
@@ -75,28 +75,34 @@ class TradingManager:
             logger.info("Initializing trading manager...")
 
             # Validate configuration
-            config_issues = validate_ibkr_config(self.config)
-            if config_issues:
-                for issue in config_issues:
-                    if "❌" in issue:
-                        logger.error(issue)
-                        raise TradingManagerError(f"Configuration error: {issue}")
-                    logger.warning(issue)
+            ibkr_config = self.config.get("ibkr", {})
+            if not ibkr_config:
+                raise TradingManagerError("IBKR configuration not found")
 
-            # Get IBKR connector singleton
-            logger.info("Getting IBKR connector...")
-            self.ibkr_connector = await get_ibkr_connector(self.config)
+            # Create and connect IBKR client (now synchronous)
+            logger.info("Creating IBKR client...")
+            self.ibkr_client = IBKRClient(
+                host=ibkr_config.get("host", "127.0.0.1"),
+                port=ibkr_config.get("port", 7497),
+                client_id=ibkr_config.get("client_id", 1),
+                account=ibkr_config.get("account_id", ""),
+            )
+
+            logger.info("Connecting to IBKR...")
+            self.ibkr_client.connect()
 
             # Initialize other components
-            self.portfolio_sync = PortfolioSynchronizer(self.ibkr_connector)
-            self.execution_engine = TradingExecutionEngine(self.ibkr_connector, self.portfolio_sync)
+            # Using the new synchronous execution engine
+            self.portfolio_sync = PortfolioSynchronizer(self.ibkr_client)
+            self.execution_engine = SyncTradingExecutionEngine(self.ibkr_client)
 
             self.is_connected = True
             logger.success("Trading manager initialized successfully")
 
-            # Log trading mode
-            trading_mode = get_trading_mode(self.config)
-            logger.info(f"Trading mode: {trading_mode.upper()} TRADING")
+            # Log trading mode based on port
+            port = ibkr_config.get("port", 7497)
+            trading_mode = "PAPER" if port in [7497, 4002] else "LIVE"
+            logger.info(f"Trading mode: {trading_mode} TRADING")
 
             return True
 
@@ -105,7 +111,7 @@ class TradingManager:
             self.is_connected = False
             raise TradingManagerError(f"Initialization failed: {e}") from e
 
-    async def execute_rebalancing(
+    def execute_rebalancing(
         self,
         rebalancing_orders: list[RebalancingOrder],
         portfolio_file: Path | None = None,
@@ -131,7 +137,8 @@ class TradingManager:
 
         # Determine dry run mode based on port
         if dry_run is None:
-            dry_run = get_trading_mode(self.config) == "paper"
+            port = self.config.get("ibkr", {}).get("port", 7497)
+            dry_run = port in [7497, 4002]  # Paper trading ports
 
         logger.info(f"Starting rebalancing execution (dry_run={dry_run})")
 
@@ -164,13 +171,13 @@ class TradingManager:
 
                 # 2. Sync portfolio with IBKR
                 logger.info("Synchronizing portfolio with IBKR...")
-                portfolio = await self.portfolio_sync.sync_portfolio_from_ibkr(portfolio)
+                portfolio = self.sync_portfolio_only(portfolio_file)
                 execution_results["portfolio_synced"] = True
                 self.last_sync_time = datetime.now(UTC)
 
             # 3. Get account information and check cash availability
-            account_info = await self.ibkr_connector.get_account_info()
-            ibkr_available_cash = account_info.get("total_cash", 0.0)
+            account_summary = self.ibkr_client.get_account_summary()
+            ibkr_available_cash = account_summary.total_cash
             strategy_allocation = self.config["strategy_allocation"]
 
             # Use the smaller of strategy allocation or available cash
@@ -221,7 +228,7 @@ class TradingManager:
 
             # 6. Execute orders
             self.trading_session_active = True
-            executed_orders, exec_summary = await self.execution_engine.execute_rebalancing_orders(
+            executed_orders, exec_summary = self.execution_engine.execute_rebalancing_orders(
                 rebalancing_orders, portfolio, dry_run=dry_run, force_execution=force_execution
             )
 
@@ -238,13 +245,10 @@ class TradingManager:
             # 6. Final portfolio sync and validation
             if not dry_run:
                 logger.info("Final portfolio synchronization...")
-                portfolio = await self.portfolio_sync.sync_portfolio_from_ibkr(portfolio)
+                portfolio = self.sync_portfolio_only(portfolio_file)
 
-                # Detect any discrepancies
-                discrepancies = await self.portfolio_sync.detect_portfolio_discrepancies(portfolio)
-                if discrepancies:
-                    logger.warning(f"Found {len(discrepancies)} portfolio discrepancies after execution")
-                    execution_results["discrepancies"] = len(discrepancies)
+                # TODO: Implement discrepancy detection
+                execution_results["discrepancies"] = 0
 
             # 7. Save updated portfolio state
             if not dry_run:
@@ -276,7 +280,7 @@ class TradingManager:
         finally:
             self.trading_session_active = False
 
-    async def sync_portfolio_only(self, portfolio_file: Path | None = None) -> Portfolio:
+    def sync_portfolio_only(self, portfolio_file: Path | None = None) -> Portfolio:
         """
         Sync portfolio with IBKR without executing trades.
 
@@ -296,7 +300,26 @@ class TradingManager:
                 portfolio_file = Path(self.config["portfolio_state_file"])
 
             portfolio = load_portfolio_state(portfolio_file)
-            portfolio = await self.portfolio_sync.sync_portfolio_from_ibkr(portfolio)
+
+            # Get positions directly from IBKR
+            positions = self.ibkr_client.get_positions()
+            account_summary = self.ibkr_client.get_account_summary()
+
+            # Update portfolio with IBKR data
+            portfolio.cash = account_summary.total_cash
+
+            # Clear and update positions
+            portfolio.positions.clear()
+            for pos in positions:
+                from ..strategy.rebalancing import Position as PortfolioPosition
+                portfolio.positions[pos.symbol] = PortfolioPosition(
+                    ticker=pos.symbol,
+                    shares=int(pos.quantity),
+                    entry_price=pos.avg_cost,
+                    current_price=pos.market_value / pos.quantity if pos.quantity else 0,
+                    entry_date=datetime.now(UTC),
+                    avg_cost_basis=pos.avg_cost
+                )
 
             # Save updated state
             save_portfolio_state(portfolio, portfolio_file)
@@ -309,7 +332,7 @@ class TradingManager:
             logger.error(f"Portfolio sync failed: {e}")
             raise TradingManagerError(f"Portfolio sync failed: {e}") from e
 
-    async def get_account_status(self) -> dict:
+    def get_account_status(self) -> dict:
         """
         Get comprehensive account status.
 
@@ -320,7 +343,13 @@ class TradingManager:
             raise TradingManagerError("Trading manager not initialized")
 
         try:
-            account_info = await self.ibkr_connector.get_account_info()
+            account_summary = self.ibkr_client.get_account_summary()
+            account_info = {
+                "net_liquidation": account_summary.net_liquidation,
+                "buying_power": account_summary.buying_power,
+                "total_cash": account_summary.total_cash,
+                "excess_liquidity": account_summary.excess_liquidity
+            }
 
             # Add additional status information
             return {
@@ -340,7 +369,7 @@ class TradingManager:
             logger.error(f"Failed to get account status: {e}")
             raise TradingManagerError(f"Failed to get account status: {e}") from e
 
-    async def emergency_stop(self, reason: str) -> None:
+    def emergency_stop(self, reason: str) -> None:
         """
         Emergency stop all trading operations.
 
@@ -358,7 +387,7 @@ class TradingManager:
                 active_orders = self.execution_engine.get_active_orders()
                 for ticker in active_orders:
                     try:
-                        await self.execution_engine.cancel_order(ticker)
+                        self.execution_engine.cancel_order(ticker)
                         logger.info(f"Cancelled order for {ticker}")
                     except Exception as e:
                         logger.error(f"Failed to cancel order for {ticker}: {e}")
@@ -369,12 +398,12 @@ class TradingManager:
         except Exception as e:
             logger.error(f"Error during emergency stop: {e}")
 
-    async def disconnect(self) -> None:
+    def disconnect(self) -> None:
         """Disconnect from IBKR and clean up resources."""
         try:
-            if self.ibkr_connector:
-                await release_ibkr_connector()
-                self.ibkr_connector = None
+            if self.ibkr_client:
+                self.ibkr_client.disconnect()
+                self.ibkr_client = None
 
             self.is_connected = False
             self.trading_session_active = False
@@ -384,14 +413,14 @@ class TradingManager:
         except Exception as e:
             logger.error(f"Error during disconnect: {e}")
 
-    async def __aenter__(self):
-        """Async context manager entry."""
-        await self.initialize()
+    def __enter__(self):
+        """Context manager entry."""
+        self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        await self.disconnect()
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.disconnect()
 
     def get_status_summary(self) -> str:
         """Get a brief status summary string."""

@@ -5,14 +5,13 @@ This module handles synchronization between the internal portfolio state
 and the actual positions in the IBKR account.
 """
 
-import asyncio
 from datetime import UTC, datetime
 
 import yfinance as yf
 from loguru import logger
 
+from ..data_sources.ibkr_client import IBKRClient
 from ..strategy.rebalancing import Portfolio, Position
-from .ibkr_connector import IBKRConnector
 
 
 class PortfolioSyncError(Exception):
@@ -32,17 +31,17 @@ class PortfolioSynchronizer:
     - Reconciling differences
     """
 
-    def __init__(self, ibkr_connector: IBKRConnector):
+    def __init__(self, ibkr_client: IBKRClient):
         """
         Initialize portfolio synchronizer.
 
         Args:
-            ibkr_connector: Connected IBKR connector instance
+            ibkr_client: Connected IBKR client instance
         """
-        self.ibkr = ibkr_connector
+        self.ibkr = ibkr_client
         self.last_sync: datetime | None = None
 
-    async def sync_portfolio_from_ibkr(self, portfolio: Portfolio) -> Portfolio:
+    def sync_portfolio_from_ibkr(self, portfolio: Portfolio) -> Portfolio:
         """
         Synchronize portfolio with IBKR account positions.
 
@@ -61,15 +60,26 @@ class PortfolioSynchronizer:
         try:
             logger.info("Synchronizing portfolio with IBKR account...")
 
-            # Get account info from IBKR
-            account_info = await self.ibkr.get_account_info()
+            # Get account summary from IBKR
+            account_summary = self.ibkr.get_account_summary()
 
             # Update cash position
-            portfolio.cash = account_info.get("total_cash", 0.0)
+            portfolio.cash = account_summary.total_cash
 
-            # Update positions
-            ibkr_positions = account_info.get("positions", {})
-            await self._sync_positions(portfolio, ibkr_positions)
+            # Get positions from IBKR
+            ibkr_positions = self.ibkr.get_positions()
+
+            # Convert positions to dict format
+            positions_dict = {}
+            for pos in ibkr_positions:
+                positions_dict[pos.symbol] = {
+                    "shares": pos.quantity,
+                    "avg_cost": pos.avg_cost,
+                    "market_value": pos.market_value,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                }
+
+            self._sync_positions(portfolio, positions_dict)
 
             # Update last sync time
             self.last_sync = datetime.now(UTC)
@@ -81,7 +91,7 @@ class PortfolioSynchronizer:
             logger.error(f"Portfolio synchronization failed: {e}")
             raise PortfolioSyncError(f"Portfolio synchronization failed: {e}") from e
 
-    async def _sync_positions(self, portfolio: Portfolio, ibkr_positions: dict) -> None:
+    def _sync_positions(self, portfolio: Portfolio, ibkr_positions: dict) -> None:
         """
         Synchronize individual positions.
 
@@ -91,7 +101,7 @@ class PortfolioSynchronizer:
         """
         # Get current market prices for all tickers
         all_tickers = set(portfolio.positions.keys()) | set(ibkr_positions.keys())
-        current_prices = await self._get_current_prices(list(all_tickers))
+        current_prices = self._get_current_prices(list(all_tickers))
 
         # Update existing positions and add new ones
         for ticker, ibkr_pos in ibkr_positions.items():
@@ -146,7 +156,7 @@ class PortfolioSynchronizer:
             # Optionally remove these positions or mark them for investigation
             # For now, we'll keep them but log the discrepancy
 
-    async def _get_current_prices(self, tickers: list[str]) -> dict[str, float]:
+    def _get_current_prices(self, tickers: list[str]) -> dict[str, float]:
         """
         Get current prices for multiple tickers.
 
@@ -185,7 +195,8 @@ class PortfolioSynchronizer:
                                 prices[ticker] = float(ticker_data[("Close", ticker)].iloc[-1])
 
                 # Small delay between batches
-                await asyncio.sleep(0.1)
+                import time
+                time.sleep(0.1)
 
             logger.debug(f"Fetched prices for {len(prices)}/{len(tickers)} tickers")
             return prices
@@ -194,7 +205,7 @@ class PortfolioSynchronizer:
             logger.warning(f"Failed to fetch current prices: {e}")
             return {}
 
-    async def detect_portfolio_discrepancies(self, portfolio: Portfolio) -> list[dict]:
+    def detect_portfolio_discrepancies(self, portfolio: Portfolio) -> list[dict]:
         """
         Detect discrepancies between internal portfolio and IBKR account.
 
@@ -210,11 +221,22 @@ class PortfolioSynchronizer:
         discrepancies = []
 
         try:
-            account_info = await self.ibkr.get_account_info()
-            ibkr_positions = account_info.get("positions", {})
+            # Get account summary and positions
+            account_summary = self.ibkr.get_account_summary()
+            positions_list = self.ibkr.get_positions()
+
+            # Convert to dict format
+            ibkr_positions = {}
+            for pos in positions_list:
+                ibkr_positions[pos.symbol] = {
+                    "shares": pos.quantity,
+                    "avg_cost": pos.avg_cost,
+                    "market_value": pos.market_value,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                }
 
             # Check cash discrepancy
-            ibkr_cash = account_info.get("total_cash", 0.0)
+            ibkr_cash = account_summary.total_cash
             if abs(portfolio.cash - ibkr_cash) > 1.0:  # More than $1 difference
                 discrepancies.append({
                     "type": "cash",
@@ -278,7 +300,7 @@ class PortfolioSynchronizer:
             logger.error(f"Failed to detect portfolio discrepancies: {e}")
             raise PortfolioSyncError(f"Failed to detect discrepancies: {e}") from e
 
-    async def reconcile_discrepancies(
+    def reconcile_discrepancies(
         self, portfolio: Portfolio, discrepancies: list[dict], auto_fix: bool = False
     ) -> list[str]:
         """
@@ -307,8 +329,20 @@ class PortfolioSynchronizer:
                     shares = discrepancy["ibkr_shares"]
 
                     # Create new position based on IBKR data
-                    account_info = await self.ibkr.get_account_info()
-                    ibkr_pos = account_info["positions"].get(ticker, {})
+                    positions_list = self.ibkr.get_positions()
+                    ibkr_pos = None
+                    for pos in positions_list:
+                        if pos.symbol == ticker:
+                            ibkr_pos = {
+                                "shares": pos.quantity,
+                                "avg_cost": pos.avg_cost,
+                                "market_value": pos.market_value,
+                                "unrealized_pnl": pos.unrealized_pnl,
+                            }
+                            break
+
+                    if not ibkr_pos:
+                        continue
 
                     current_price = ibkr_pos.get("market_value", 0) / shares if shares > 0 else 0
                     new_position = Position(
