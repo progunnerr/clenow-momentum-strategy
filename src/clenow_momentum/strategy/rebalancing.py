@@ -467,6 +467,8 @@ def generate_rebalancing_orders(
 
     # 3. Generate BUY orders for new positions (in momentum rank order as provided)
     # Process target portfolio in order - it should already be sorted by momentum
+    skipped_due_to_cash = []
+    
     for _, target_row in target_portfolio.iterrows():
         ticker = target_row["ticker"]
 
@@ -476,7 +478,13 @@ def generate_rebalancing_orders(
 
         # Check if we have enough cash
         if target_row["investment"] > available_cash:
-            logger.warning(
+            skipped_due_to_cash.append({
+                "ticker": ticker,
+                "needed": target_row["investment"],
+                "available": available_cash,
+                "rank": target_row.get("portfolio_rank", target_row.get("momentum_rank", "N/A"))
+            })
+            logger.debug(
                 f"Insufficient cash for {ticker}: need ${target_row['investment']:,.2f}, have ${available_cash:,.2f}"
             )
             continue
@@ -564,7 +572,14 @@ def generate_rebalancing_orders(
 
             # Check if we have enough cash
             if order_value > available_cash:
-                logger.warning(
+                skipped_due_to_cash.append({
+                    "ticker": ticker,
+                    "needed": order_value,
+                    "available": available_cash,
+                    "rank": target_row.get("portfolio_rank", target_row.get("momentum_rank", "N/A")),
+                    "type": "increase"
+                })
+                logger.debug(
                     f"Insufficient cash to increase {ticker}: need ${order_value:,.2f}, have ${available_cash:,.2f}"
                 )
                 continue
@@ -622,6 +637,18 @@ def generate_rebalancing_orders(
     logger.info(f"  - {num_buys} BUY orders: ${total_buys:,.2f}")
     logger.info(f"  - Net cash flow: ${total_sells - total_buys:,.2f}")
     logger.info(f"  - Final cash position: ${available_cash:,.2f}")
+    
+    # Log positions skipped due to cash constraints
+    if skipped_due_to_cash:
+        logger.info(f"  - Positions skipped due to cash constraints: {len(skipped_due_to_cash)}")
+        for skipped in skipped_due_to_cash[:3]:  # Show first 3 as examples
+            position_type = skipped.get("type", "new")
+            logger.info(
+                f"    • {skipped['ticker']} (Rank #{skipped['rank']}, {position_type}): "
+                f"needed ${skipped['needed']:,.0f}, had ${skipped['available']:,.0f}"
+            )
+        if len(skipped_due_to_cash) > 3:
+            logger.info(f"    • ... and {len(skipped_due_to_cash) - 3} more")
 
     return orders
 

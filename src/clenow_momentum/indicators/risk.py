@@ -440,6 +440,39 @@ def build_portfolio(
 
     # The incoming data is already sorted by momentum score. Preserve this ranking.
     portfolio_df = portfolio_df.reset_index(drop=True)
+    
+    # Apply cash constraint: only include positions we can afford
+    # Iterate through positions in momentum rank order (they're already sorted)
+    cash_constrained_positions = []
+    cumulative_investment = 0.0
+    positions_excluded = 0
+    
+    for idx, row in portfolio_df.iterrows():
+        position_cost = row["investment"]
+        
+        # Check if we can afford this position
+        if cumulative_investment + position_cost <= account_value:
+            cash_constrained_positions.append(row)
+            cumulative_investment += position_cost
+        else:
+            positions_excluded += 1
+            logger.info(
+                f"Cash constraint: Excluding {row['ticker']} "
+                f"(would need ${position_cost:,.0f}, only ${account_value - cumulative_investment:,.0f} remaining)"
+            )
+    
+    # Replace portfolio with cash-constrained version
+    if cash_constrained_positions:
+        portfolio_df = pd.DataFrame(cash_constrained_positions)
+        portfolio_df = portfolio_df.reset_index(drop=True)
+        
+        if positions_excluded > 0:
+            logger.info(
+                f"Cash constraint applied: {positions_excluded} positions excluded due to insufficient funds"
+            )
+    else:
+        logger.warning("No positions fit within cash constraint")
+        return pd.DataFrame()
 
     # Add portfolio statistics
     portfolio_df["portfolio_rank"] = range(1, len(portfolio_df) + 1)
