@@ -114,7 +114,21 @@ Total Value: $72,825.00
   • Momentum Rank: #1
   • Momentum Score: 2.145
   • R-squared: 0.923
-  • Position Size: 7.3% of portfolio
+  • Target Weight: 5.0% of portfolio
+
+📊 RISK METRICS:
+  • ATR (20-day): $12.35
+  • Volatility: 2.54% of price
+  • Stop Loss: $448.45
+  • Stop Distance: -7.6%
+  • $ Risk: $5,558
+
+✅ FILTERS PASSED:
+  • Above 100-day MA
+  • Price +18.3% vs MA
+  • MA: $410.25
+  • No significant gaps
+  • S&P 500 member
 
 ⚠️  This will buy 150 shares of NVDA
     Impact: $72,825.00
