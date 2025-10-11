@@ -11,7 +11,7 @@ from enum import Enum
 
 from loguru import logger
 
-from ..strategy.rebalancing import Portfolio, RebalancingOrder
+from clenow_momentum.strategy.rebalancing import Portfolio, RebalancingOrder
 
 
 class RiskLevel(Enum):

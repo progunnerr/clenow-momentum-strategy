@@ -19,3 +19,5 @@ logs/
 data/debug/
 *.debug.csv
 *.debug.json
+.vscode
+.idea

@@ -1,6 +1,6 @@
 """Trading execution and broker connectivity."""
 
-from ..data_sources.ibkr_client import get_trading_mode
+from clenow_momentum.data.sources.ibkr_client import get_trading_mode
 from .execution_engine_sync import ExecutionError, SyncTradingExecutionEngine
 from .portfolio_sync import PortfolioSyncError, PortfolioSynchronizer
 from .risk_controls import (
@@ -11,6 +11,14 @@ from .risk_controls import (
     RiskLevel,
 )
 from .trading_manager import TradingManager, TradingManagerError
+from .order_strategies import (
+    OrderStrategy,
+    OrderContext, 
+    ExitStrategy,
+    AdjustStrategy,
+    EntryStrategy
+)
+from .order_generation import OrderGenerationService, OrderGenerationResult
 
 __all__ = [
     # Portfolio Synchronization
@@ -28,6 +36,14 @@ __all__ = [
     # Trading Manager
     "TradingManager",
     "TradingManagerError",
+    # Order Generation
+    "OrderStrategy",
+    "OrderContext",
+    "ExitStrategy", 
+    "AdjustStrategy",
+    "EntryStrategy",
+    "OrderGenerationService",
+    "OrderGenerationResult",
     # Utility functions
     "get_trading_mode",
 ]

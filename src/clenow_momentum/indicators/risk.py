@@ -156,18 +156,24 @@ def calculate_position_size(
     """
     Calculate position size based on Clenow's risk management rules.
 
+    Using Clenow's formula: Shares = (Account Value × Risk Factor) / ATR
+    
+    This targets a specific daily portfolio impact per position based on the stock's
+    average daily volatility (ATR). The risk_per_trade parameter sets the target
+    daily impact as a percentage of account value.
+    
     The position size is determined by:
-    1. Risk per trade (default 0.1% of account)
-    2. Stock's ATR (volatility) with stop loss multiplier
-    3. Maximum position size limit (default 5% of account)
+    1. Target daily impact (risk_per_trade × account_value)
+    2. Stock's average daily volatility (ATR)
+    3. Maximum position size limit constraint
 
     Args:
         account_value: Total account value
-        risk_per_trade: Risk per trade as percentage (e.g., 0.001 for 0.1%)
+        risk_per_trade: Target daily impact as percentage (e.g., 0.001 for 0.1%)
         stock_price: Current stock price
-        atr: Stock's Average True Range
+        atr: Stock's Average True Range (daily volatility)
         max_position_pct: Maximum position as percentage of account (default 0.05 = 5%)
-        stop_loss_multiplier: ATR multiplier for stop loss (default 3.0 = 3x ATR per Clenow)
+        stop_loss_multiplier: ATR multiplier for stop loss calculation (default 3.0)
 
     Returns:
         Dictionary with position sizing details
@@ -184,9 +190,10 @@ def calculate_position_size(
     # Calculate stop loss distance (typically 3x ATR per Clenow)
     stop_loss_distance = atr * stop_loss_multiplier
 
-    # Calculate position size based on ATR and stop loss
-    # Position size = Risk Amount / Stop Loss Distance
-    shares_based_on_risk = risk_amount / stop_loss_distance
+    # Calculate position size using Clenow's correct formula:
+    # Shares = (Account Value × Risk Factor) / ATR
+    # This targets a specific daily impact per position, NOT stop loss risk
+    shares_based_on_risk = risk_amount / atr
 
     # Calculate maximum shares based on position limit
     max_position_value = account_value * max_position_pct
@@ -215,8 +222,8 @@ def calculate_position_size(
         "shares": shares,
         "investment_amount": investment_amount,
         "position_pct": position_pct,
-        "target_risk": risk_amount,
-        "actual_risk": actual_risk,
+        "target_risk": risk_amount,  # Actually: target daily portfolio impact
+        "actual_risk": actual_risk,  # Actually: potential stop loss risk
         "risk_utilization": actual_risk / risk_amount if risk_amount > 0 else 0,
         "limited_by": "position_limit" if limited_by_position else "risk_limit",
         "stop_loss_price": stop_loss_price,

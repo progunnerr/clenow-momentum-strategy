@@ -2,14 +2,14 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from src.clenow_momentum.data.fetcher import get_sp500_index_data, get_sp500_tickers, get_stock_data
+from src.clenow_momentum.data import get_sp500_index_data, get_sp500_tickers, get_stock_data
 
 
 class TestGetSP500Tickers:
     """Test the S&P 500 ticker fetching function."""
 
-    @patch("src.clenow_momentum.data.fetcher.requests.get")
-    @patch("src.clenow_momentum.data.fetcher.pd.read_html")
+    @patch("src.clenow_momentum.data.provider.requests.get")
+    @patch("src.clenow_momentum.data.provider.pd.read_html")
     def test_successful_fetch(self, mock_read_html, mock_requests):
         """Test successful ticker fetching."""
         # Mock successful HTTP response
@@ -34,8 +34,8 @@ class TestGetSP500Tickers:
         assert "headers" in call_args[1]
         assert call_args[1]["timeout"] == 10
 
-    @patch("src.clenow_momentum.data.fetcher.get_sp500_tickers_yfinance")
-    @patch("src.clenow_momentum.data.fetcher.requests.get")
+    @patch("src.clenow_momentum.data.provider.get_sp500_tickers_yfinance")
+    @patch("src.clenow_momentum.data.provider.requests.get")
     def test_request_exception(self, mock_requests, mock_yfinance):
         """Test handling of request exceptions - should fallback to yfinance."""
         import requests
@@ -48,9 +48,9 @@ class TestGetSP500Tickers:
         assert tickers == ["AAPL", "MSFT"]  # Should get fallback results
         mock_yfinance.assert_called_once()
 
-    @patch("src.clenow_momentum.data.fetcher.get_sp500_tickers_yfinance")
-    @patch("src.clenow_momentum.data.fetcher.requests.get")
-    @patch("src.clenow_momentum.data.fetcher.BeautifulSoup")
+    @patch("src.clenow_momentum.data.provider.get_sp500_tickers_yfinance")
+    @patch("src.clenow_momentum.data.provider.requests.get")
+    @patch("src.clenow_momentum.data.provider.BeautifulSoup")
     def test_missing_table(self, mock_soup, mock_requests, mock_yfinance):
         """Test handling when constituents table is not found - should fallback."""
         # Mock successful HTTP response
@@ -72,9 +72,9 @@ class TestGetSP500Tickers:
         assert tickers == ["AAPL", "MSFT"]  # Should get fallback results
         mock_yfinance.assert_called_once()
 
-    @patch("src.clenow_momentum.data.fetcher.get_sp500_tickers_yfinance")
-    @patch("src.clenow_momentum.data.fetcher.requests.get")
-    @patch("src.clenow_momentum.data.fetcher.pd.read_html")
+    @patch("src.clenow_momentum.data.provider.get_sp500_tickers_yfinance")
+    @patch("src.clenow_momentum.data.provider.requests.get")
+    @patch("src.clenow_momentum.data.provider.pd.read_html")
     def test_missing_symbol_column(self, mock_read_html, mock_requests, mock_yfinance):
         """Test handling when Symbol column is missing - should fallback."""
         # Mock successful HTTP response
@@ -99,7 +99,7 @@ class TestGetSP500Tickers:
 class TestGetStockData:
     """Test stock data fetching function."""
 
-    @patch("src.clenow_momentum.data.fetcher.yf.download")
+    @patch("src.clenow_momentum.data.provider.yf.download")
     def test_successful_data_fetch(self, mock_download):
         """Test successful stock data fetching."""
         # Create mock data
@@ -117,7 +117,7 @@ class TestGetStockData:
             tickers, period="1y", group_by="ticker", auto_adjust=True
         )
 
-    @patch("src.clenow_momentum.data.fetcher.yf.download")
+    @patch("src.clenow_momentum.data.provider.yf.download")
     def test_data_fetch_exception(self, mock_download):
         """Test handling of yfinance exceptions."""
         mock_download.side_effect = Exception("API error")
@@ -130,7 +130,7 @@ class TestGetStockData:
 class TestGetSP500IndexData:
     """Test S&P 500 index data fetching."""
 
-    @patch("src.clenow_momentum.data.fetcher.yf.download")
+    @patch("src.clenow_momentum.data.provider.yf.download")
     def test_successful_sp500_fetch(self, mock_download):
         """Test successful S&P 500 data fetching."""
         # Create mock S&P 500 data
@@ -143,7 +143,7 @@ class TestGetSP500IndexData:
         assert data is not None
         mock_download.assert_called_once_with("^GSPC", period="1y", auto_adjust=True)
 
-    @patch("src.clenow_momentum.data.fetcher.yf.download")
+    @patch("src.clenow_momentum.data.provider.yf.download")
     def test_sp500_fetch_exception(self, mock_download):
         """Test handling of S&P 500 fetch exceptions."""
         mock_download.side_effect = Exception("API error")

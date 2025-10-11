@@ -10,8 +10,8 @@ from datetime import UTC, datetime
 
 from loguru import logger
 
-from ..data_sources import IBKRClient
-from ..strategy.rebalancing import OrderStatus, OrderType, Portfolio, RebalancingOrder
+from clenow_momentum.data.sources import IBKRClient
+from clenow_momentum.strategy.rebalancing import OrderStatus, OrderType, Portfolio, RebalancingOrder
 
 
 class ExecutionError(Exception):

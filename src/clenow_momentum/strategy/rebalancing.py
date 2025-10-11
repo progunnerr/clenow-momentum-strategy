@@ -14,6 +14,10 @@ from pathlib import Path
 import pandas as pd
 from loguru import logger
 
+"""Note: IBKR-specific types are intentionally not imported here.
+We convert broker snapshots to the domain Portfolio before using strategy code.
+"""
+
 
 class OrderType(Enum):
     """Order type enumeration."""
@@ -39,9 +43,9 @@ class Position:
     ticker: str
     shares: int
     entry_price: float
-    current_price: float
-    entry_date: datetime
-    atr: float
+    current_price: float = 0  # Default to 0, must be set by caller when needed
+    entry_date: datetime = field(default_factory=lambda: datetime.now(UTC))
+    atr: float = 0
     stop_loss: float | None = None
     # IBKR-specific fields
     ibkr_position_id: str | None = None
@@ -230,35 +234,13 @@ class Portfolio:
             del self.positions[ticker]
             logger.debug(f"Removed position: {ticker}")
 
-    def to_dataframe(self) -> pd.DataFrame:
-        """Convert portfolio to DataFrame."""
-        if not self.positions:
-            return pd.DataFrame()
 
-        data = []
-        for ticker, pos in self.positions.items():
-            data.append(
-                {
-                    "ticker": ticker,
-                    "shares": pos.shares,
-                    "entry_price": pos.entry_price,
-                    "current_price": pos.current_price,
-                    "market_value": pos.market_value,
-                    "unrealized_pnl": pos.unrealized_pnl,
-                    "unrealized_pnl_pct": pos.unrealized_pnl_pct,
-                    "entry_date": pos.entry_date,
-                }
-            )
-
-        return pd.DataFrame(data)
-
-
-def save_portfolio_state(portfolio: Portfolio, filepath: Path | None = None) -> Path:
+def save_ibkr_portfolio(portfolio: Portfolio, filepath: Path | None = None) -> Path:
     """
-    Save portfolio state to JSON file.
+    Save IBKR portfolio state to JSON file.
 
     Args:
-        portfolio: Portfolio to save
+        portfolio: Portfolio object to save
         filepath: Path to save file (defaults to data/portfolio_state.json)
 
     Returns:
@@ -271,28 +253,28 @@ def save_portfolio_state(portfolio: Portfolio, filepath: Path | None = None) -> 
         data_dir.mkdir(exist_ok=True)
         filepath = data_dir / "portfolio_state.json"
 
-    state = {
+    # Convert Portfolio object to dict for serialization
+    portfolio_dict = {
         "cash": portfolio.cash,
-        "last_rebalance_date": portfolio.last_rebalance_date.isoformat()
-        if portfolio.last_rebalance_date
-        else None,
-        "positions": {},
+        "last_rebalance_date": portfolio.last_rebalance_date.isoformat() if portfolio.last_rebalance_date else None,
+        "positions": {
+            ticker: {
+                "ticker": pos.ticker,
+                "shares": pos.shares,
+                "entry_price": pos.entry_price,
+                "current_price": pos.current_price,
+                "entry_date": pos.entry_date.isoformat() if pos.entry_date else None,
+                "atr": pos.atr,
+                "stop_loss": pos.stop_loss,
+            }
+            for ticker, pos in portfolio.positions.items()
+        }
     }
 
-    for ticker, pos in portfolio.positions.items():
-        state["positions"][ticker] = {
-            "shares": pos.shares,
-            "entry_price": pos.entry_price,
-            "current_price": pos.current_price,
-            "entry_date": pos.entry_date.isoformat(),
-            "atr": pos.atr,
-            "stop_loss": pos.stop_loss,
-        }
-
     with open(filepath, "w") as f:
-        json.dump(state, f, indent=2)
+        json.dump(portfolio_dict, f, indent=2, default=str)
 
-    logger.info(f"Saved portfolio state to {filepath}")
+    logger.info(f"Saved IBKR portfolio state to {filepath}")
     return filepath
 
 
@@ -403,6 +385,7 @@ def generate_rebalancing_orders(
     orders = []
     available_cash = current_portfolio.cash
 
+    # Domain portfolio stores positions as dict[ticker -> Position]
     current_tickers = set(current_portfolio.positions.keys())
     target_tickers = set(target_portfolio["ticker"].values) if not target_portfolio.empty else set()
 
@@ -410,7 +393,9 @@ def generate_rebalancing_orders(
     tickers_to_sell = current_tickers - target_tickers
 
     for ticker in tickers_to_sell:
-        position = current_portfolio.positions[ticker]
+        position = current_portfolio.positions.get(ticker)
+        if position is None:
+            continue
 
         # Build detailed exit reason
         reasons = []
@@ -426,39 +411,50 @@ def generate_rebalancing_orders(
 
         reasons.append("Full position exit required for rebalancing")
 
+        # Get current price from stock_data if available; else use portfolio's last price or entry price
+        if not stock_data.empty and ticker in stock_data.columns.get_level_values(1):
+            ticker_data = stock_data.xs(ticker, level=1, axis=1)
+            current_price = ticker_data['Close'].iloc[-1] if not ticker_data.empty else (position.current_price or position.entry_price)
+        else:
+            current_price = position.current_price or position.entry_price
+        
         order = RebalancingOrder(
             ticker=ticker,
             order_type=OrderType.SELL,
-            shares=position.shares,
-            current_price=position.current_price,
-            order_value=position.market_value,
+            shares=int(position.shares),
+            current_price=current_price,
+            order_value=position.shares * current_price,
             reason=". ".join(reasons),
             priority=1,  # Sells have highest priority
         )
         orders.append(order)
-        available_cash += position.market_value
-        logger.debug(f"SELL order: {ticker} - {position.shares} shares (exit position)")
+        available_cash += order.order_value
+        logger.debug(f"SELL order: {ticker} - {int(position.shares)} shares (exit position)")
 
     # 2. Generate SELL orders for positions to reduce
     for ticker in current_tickers & target_tickers:
-        current_pos = current_portfolio.positions[ticker]
+        current_pos = current_portfolio.positions.get(ticker)
+        if current_pos is None:
+            continue
         target_row = target_portfolio[target_portfolio["ticker"] == ticker].iloc[0]
 
         # Calculate target shares based on position sizing
         target_value = target_row["investment"]
-        target_shares = int(target_value / current_pos.current_price)
+        # Get current price from target_row or use position's last/entry price
+        current_price = target_row.get("current_price", current_pos.current_price or current_pos.entry_price)
+        target_shares = int(target_value / current_price)
 
         if target_shares < current_pos.shares:
-            shares_to_sell = current_pos.shares - target_shares
-            order_value = shares_to_sell * current_pos.current_price
+            shares_to_sell = int(current_pos.shares) - target_shares
+            order_value = shares_to_sell * current_price
 
             order = RebalancingOrder(
                 ticker=ticker,
                 order_type=OrderType.SELL,
                 shares=shares_to_sell,
-                current_price=current_pos.current_price,
+                current_price=current_price,
                 order_value=order_value,
-                reason=f"Position size adjustment. Reducing from {current_pos.shares} to {target_shares} shares for optimal portfolio balance",
+                reason=f"Position size adjustment. Reducing from {int(current_pos.shares)} to {target_shares} shares for optimal portfolio balance",
                 priority=2,  # Partial sells have second priority
             )
             orders.append(order)
@@ -561,13 +557,15 @@ def generate_rebalancing_orders(
 
     # 4. Generate BUY orders for positions to increase
     for ticker in current_tickers & target_tickers:
-        current_pos = current_portfolio.positions[ticker]
+        current_pos = current_portfolio.positions.get(ticker)
+        if not current_pos:
+            continue
         target_row = target_portfolio[target_portfolio["ticker"] == ticker].iloc[0]
 
         target_shares = int(target_row["shares"])
 
         if target_shares > current_pos.shares:
-            shares_to_buy = target_shares - current_pos.shares
+            shares_to_buy = target_shares - int(current_pos.shares)
             order_value = shares_to_buy * target_row["current_price"]
 
             # Check if we have enough cash
@@ -679,11 +677,11 @@ def create_rebalancing_summary(
         "total_buy_value": sum(o.order_value for o in orders if o.order_type == OrderType.BUY),
     }
 
-    # Calculate portfolio turnover
-    if current_portfolio.total_market_value > 0:
+    # Calculate portfolio turnover without relying on total_market_value directly
+    positions_value = max(0.0, summary["current_value"] - summary["current_cash"])
+    if positions_value > 0:
         sell_value = summary["total_sell_value"]
-        portfolio_value = current_portfolio.total_market_value
-        summary["turnover_pct"] = (sell_value / portfolio_value) * 100
+        summary["turnover_pct"] = (sell_value / positions_value) * 100
     else:
         summary["turnover_pct"] = 100.0 if summary["num_buys"] > 0 else 0.0
 

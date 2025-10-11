@@ -10,18 +10,18 @@ from pathlib import Path
 
 from loguru import logger
 
-from ..data_sources import IBKRClient
-from ..data_sources.ibkr_client import get_trading_mode
-from ..strategy.rebalancing import (
+from clenow_momentum.data.sources import IBKRClient
+from clenow_momentum.data.sources.ibkr_client import get_trading_mode
+from clenow_momentum.strategy.rebalancing import (
     Portfolio,
     RebalancingOrder,
     load_portfolio_state,
-    save_portfolio_state,
+    save_ibkr_portfolio,
 )
-from ..utils.config import load_config
-from .execution_engine_sync import SyncTradingExecutionEngine
-from .portfolio_sync import PortfolioSynchronizer
-from .risk_controls import RiskCheckResult, RiskControlSystem
+from clenow_momentum.trading.execution_engine_sync import SyncTradingExecutionEngine
+from clenow_momentum.trading.portfolio_sync import PortfolioSynchronizer
+from clenow_momentum.trading.risk_controls import RiskCheckResult, RiskControlSystem
+from clenow_momentum.utils.config import load_config
 
 
 class TradingManagerError(Exception):
@@ -92,8 +92,8 @@ class TradingManager:
             self.ibkr_client.connect()
 
             # Initialize other components
-            # Using the new synchronous execution engine
-            self.portfolio_sync = PortfolioSynchronizer(self.ibkr_client)
+            # PortfolioSynchronizer expects a config dict, not an IBKR client
+            self.portfolio_sync = PortfolioSynchronizer(self.config)
             self.execution_engine = SyncTradingExecutionEngine(self.ibkr_client)
 
             self.is_connected = True
@@ -253,7 +253,7 @@ class TradingManager:
             # 7. Save updated portfolio state
             if not dry_run:
                 portfolio.last_rebalance_date = datetime.now(UTC)
-                save_portfolio_state(portfolio, portfolio_file)
+                save_ibkr_portfolio(portfolio, portfolio_file)
                 logger.info(f"Portfolio state saved to {portfolio_file}")
 
             # 8. Post-trade risk monitoring
@@ -322,7 +322,7 @@ class TradingManager:
                 )
 
             # Save updated state
-            save_portfolio_state(portfolio, portfolio_file)
+            save_ibkr_portfolio(portfolio, portfolio_file)
             self.last_sync_time = datetime.now(UTC)
 
             logger.success(f"Portfolio synced: {portfolio.num_positions} positions")

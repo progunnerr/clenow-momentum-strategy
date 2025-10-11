@@ -199,7 +199,7 @@ def validate_ibkr_config(config: dict = None) -> list[str]:
 
     # Trading mode detection and warnings
     if port:
-        from ..data_sources.ibkr_client import get_trading_mode_from_port
+        from ..data.sources.ibkr_client import get_trading_mode_from_port
         
         trading_mode = get_trading_mode_from_port(port)
         
