@@ -48,20 +48,28 @@ class MarketAnalysisFacade:
         market_data_source: MarketDataSource,
         ticker_source: TickerSource,
         debug_manager: DebugDataManager | None = None,
+        benchmark_ticker: str = "SPY",
     ):
         """Initialize facade with data sources.
-        
+
         Args:
-            market_data_source: Source for market (SPY) data
-            ticker_source: Source for S&P 500 ticker list
-            debug_manager: Optional debug data manager
+            market_data_source: Source for market benchmark data.
+            ticker_source:      Source for universe ticker list.
+            debug_manager:      Optional debug data manager.
+            benchmark_ticker:   ETF symbol used for regime detection.
+                                Defaults to "SPY". Pass the active
+                                universe's benchmark_etf (e.g. "IWB"
+                                for Russell 1000).
         """
         self.market_data_source = market_data_source
         self.ticker_source = ticker_source
         self.debug_manager = debug_manager or DebugDataManager()
-        
+        self.benchmark_ticker = benchmark_ticker
+
         # Initialize all analyzers (no data sources - just pure logic)
-        self.regime_detector = MarketRegimeDetector(market_data_source, self.debug_manager)
+        self.regime_detector = MarketRegimeDetector(
+            market_data_source, self.debug_manager, benchmark_ticker=benchmark_ticker
+        )
         self.breadth_analyzer = MarketBreadthAnalyzer(
             market_data_source, ticker_source, self.debug_manager
         )
@@ -147,7 +155,7 @@ class MarketAnalysisFacade:
         # Fetch data once for this calculation
         period_str = f"{period_months + 1}mo"
         try:
-            spy_data = self.market_data_source.get_market_data(period=period_str)
+            spy_data = self.market_data_source.get_market_data(period=period_str, benchmark_ticker=self.benchmark_ticker)
             return self.momentum_analyzer.calculate_momentum(spy_data, period_months=period_months)
         except Exception as e:
             logger.error(f"Error fetching data for momentum calculation: {e}")
@@ -170,7 +178,7 @@ class MarketAnalysisFacade:
         """
         # Fetch recent data
         try:
-            spy_data = self.market_data_source.get_market_data(period="1mo")
+            spy_data = self.market_data_source.get_market_data(period="1mo", benchmark_ticker=self.benchmark_ticker)
             return self.momentum_analyzer.calculate_daily_performance(spy_data)
         except Exception as e:
             logger.error(f"Error fetching data for daily performance: {e}")
@@ -191,7 +199,7 @@ class MarketAnalysisFacade:
         """
         # Fetch data for MA calculations
         try:
-            spy_data = self.market_data_source.get_market_data(period="3mo")
+            spy_data = self.market_data_source.get_market_data(period="3mo", benchmark_ticker=self.benchmark_ticker)
             return self.ma_analyzer.calculate_short_term_mas(spy_data)
         except Exception as e:
             logger.error(f"Error fetching data for short-term MAs: {e}")
@@ -212,7 +220,7 @@ class MarketAnalysisFacade:
         # If short_term_mas not provided, fetch data and calculate
         if short_term_mas is None:
             try:
-                spy_data = self.market_data_source.get_market_data(period="3mo")
+                spy_data = self.market_data_source.get_market_data(period="3mo", benchmark_ticker=self.benchmark_ticker)
                 return self.ma_analyzer.analyze_position(
                     long_term_ma=long_term_ma, spy_data=spy_data
                 )
@@ -253,8 +261,8 @@ class MarketAnalysisFacade:
         
         # Fetch all necessary market data once (orchestrator pattern)
         try:
-            spy_data_3mo = self.market_data_source.get_market_data(period="3mo")
-            spy_data_13mo = self.market_data_source.get_market_data(period="13mo")
+            spy_data_3mo = self.market_data_source.get_market_data(period="3mo", benchmark_ticker=self.benchmark_ticker)
+            spy_data_13mo = self.market_data_source.get_market_data(period="13mo", benchmark_ticker=self.benchmark_ticker)
         except Exception as e:
             logger.error(f"Error fetching market data: {e}")
             # Return error state for all components

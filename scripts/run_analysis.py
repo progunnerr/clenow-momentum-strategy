@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # Initialize logger configuration
 
 from clenow_momentum.data import get_universe_tickers, get_stock_data
+from clenow_momentum.data.universes import get_universe_spec
 from clenow_momentum.data.sources.yfinance_adapter import (
     WikipediaTickerAdapter,
     YFinanceMarketDataAdapter,
@@ -113,7 +114,7 @@ def fetch_and_process_data(tickers, config):
     # 200 trading days ≈ 10 months, so fetch 1 year to be safe
     print("Step 2: Fetching stock data (1 year for 200-day MA)...")
     print("⏳ This may take a moment...")
-    print(f"📈 Processing all {len(tickers)} S&P 500 stocks")
+    print(f"📈 Processing all {len(tickers)} {config.get('universe', 'SP500')} stocks")
 
     stock_data = get_stock_data(tickers, period="1y")
 
@@ -351,9 +352,12 @@ def main(force_execution: bool = False):
     )
     
     # Initialize new market analysis architecture
+    universe_spec = get_universe_spec(universe)
     market_data_source = YFinanceMarketDataAdapter()
     ticker_source = WikipediaTickerAdapter()
-    market_analysis = MarketAnalysisFacade(market_data_source, ticker_source)
+    market_analysis = MarketAnalysisFacade(
+        market_data_source, ticker_source, benchmark_ticker=universe_spec.benchmark_etf
+    )
     
     # Check regime using new architecture
     regime = market_analysis.check_regime(period=config["market_regime_period"])
@@ -447,7 +451,7 @@ def main(force_execution: bool = False):
         trend_emoji = "📈" if change_pct > 0 else "📉" if change_pct < 0 else "➡️"
 
         print(
-            f"{change_emoji} S&P 500 Today: {change_pct:+.2f}% (${daily_perf.get('daily_change', 0):+.2f})"
+            f"{change_emoji} {universe_spec.display_name} Today: {change_pct:+.2f}% (${daily_perf.get('daily_change', 0):+.2f})"
         )
         print(f"   • Current: ${daily_perf.get('current_price', 0):,.2f}")
         print(f"   • Previous Close: ${daily_perf.get('previous_close', 0):,.2f}")
@@ -533,7 +537,7 @@ def main(force_execution: bool = False):
         # Current regime information
         print(f"🏛️ Current Regime: {detailed_status.get('regime_type', 'Unknown')}")
         print(
-            f"📅 S&P 500 {detailed_status.get('crossover_type', '')} {config['market_regime_period']}MA on: {detailed_status.get('crossover_date', 'N/A')}"
+            f"📅 {universe_spec.display_name} {detailed_status.get('crossover_type', '')} {config['market_regime_period']}MA on: {detailed_status.get('crossover_date', 'N/A')}"
         )
         print(
             f"⏱️ Days in {detailed_status.get('regime_type', 'regime')}: {detailed_status.get('days_since_crossover', 0)} days"
@@ -590,7 +594,7 @@ def main(force_execution: bool = False):
         ma_period_used = breadth_data.get("ma_period", config["market_regime_period"])
 
         print(
-            f"{breadth_emoji} Market Breadth: {breadth_pct:.1f}% of S&P 500 stocks above {ma_period_used}-day MA"
+            f"{breadth_emoji} Market Breadth: {breadth_pct:.1f}% of {universe_spec.display_name} stocks above {ma_period_used}-day MA"
         )
         print(
             f"   • Stocks above MA: {breadth_data.get('above_ma', 0)}/{breadth_data.get('total_checked', 0)}"
@@ -625,7 +629,7 @@ def main(force_execution: bool = False):
             "🚀" if period_return > 10 else "📈" if period_return > 0 else "📉"
         )
 
-        print(f"{momentum_emoji} S&P 500 12-Month Return: {period_return:+.2f}%")
+        print(f"{momentum_emoji} {universe_spec.display_name} 12-Month Return: {period_return:+.2f}%")
         print(
             f"   • Momentum Strength: {momentum_data.get('momentum_strength', 'Unknown')}"
         )
