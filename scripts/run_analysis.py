@@ -8,6 +8,7 @@ according to Clenow's momentum strategy.
 
 import sys
 from datetime import UTC, datetime
+from math import isfinite
 from pathlib import Path
 
 import pandas as pd
@@ -48,6 +49,34 @@ from clenow_momentum.utils.config import get_position_sizing_guide, load_config,
 def has_error(result: dict) -> bool:
     """Return True only when a result dict contains a real error message."""
     return bool(result.get("error"))
+
+
+MA_ALIGNMENT_TARGET = "10 EMA > 20 SMA > 50 SMA > 200 SMA"
+
+
+def format_ma_stack(short_mas: dict, long_term_ma: float | None) -> str:
+    """Return moving averages ordered from highest value to lowest value."""
+    ma_values = [
+        ("10 EMA", short_mas.get("10_ema")),
+        ("20 SMA", short_mas.get("20_sma")),
+        ("50 SMA", short_mas.get("50_sma")),
+        ("200 SMA", long_term_ma),
+    ]
+
+    available_mas = []
+    for label, value in ma_values:
+        if value is None:
+            continue
+
+        ma_value = float(value)
+        if isfinite(ma_value):
+            available_mas.append((label, ma_value))
+
+    if not available_mas:
+        return ""
+
+    ordered_mas = sorted(available_mas, key=lambda item: item[1], reverse=True)
+    return " > ".join(f"{label} (${value:,.2f})" for label, value in ordered_mas)
 
 
 def print_trading_schedule_status(config):
@@ -346,13 +375,13 @@ def main(force_execution: bool = False):
 
     valid_scores = momentum_df.dropna(subset=["momentum_score"])
 
-    # Step 4: Check market regime with enhanced analysis
-    print(
-        f"Step 4: Checking market regime (SPX vs {config['market_regime_period']}-day MA)..."
-    )
-    
     # Initialize new market analysis architecture
     universe_spec = get_universe_spec(universe)
+
+    # Step 4: Check market regime with enhanced analysis
+    print(
+        f"Step 4: Checking market regime ({universe_spec.benchmark_etf} vs {config['market_regime_period']}-day MA)..."
+    )
     market_data_source = YFinanceMarketDataAdapter()
     ticker_source = WikipediaTickerAdapter()
     market_analysis = MarketAnalysisFacade(
@@ -507,10 +536,15 @@ def main(force_execution: bool = False):
         )
         print(f"\n{struct_emoji} Market Structure: {structure}")
 
+        alignment_stack = format_ma_stack(short_mas, ma_analysis.get("200_ma"))
         if ma_analysis.get("mas_aligned"):
-            print("   ✅ MAs are bullishly aligned (10>20>50>200)")
+            print(f"   ✅ MA stack bullishly aligned ({MA_ALIGNMENT_TARGET})")
         else:
-            print("   ⚠️ MAs are not aligned")
+            print(
+                f"   ⚠️ MA stack not bullishly aligned (target: {MA_ALIGNMENT_TARGET})"
+            )
+            if alignment_stack:
+                print(f"   • Current stack: {alignment_stack}")
 
     print("\n" + "=" * 60)
     print("MARKET REGIME ANALYSIS")
@@ -518,7 +552,7 @@ def main(force_execution: bool = False):
 
     print(f"📊 Market Regime: {market_regime.get('regime', 'unknown').upper()}")
     print(
-        f"📈 SPX: ${market_regime.get('current_price', 'N/A'):,.2f} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A'):,.2f}"
+        f"📈 {universe_spec.benchmark_etf} ({universe_spec.display_name}): ${market_regime.get('current_price', 'N/A'):,.2f} vs {config['market_regime_period']}MA: ${market_regime.get('ma_value', 'N/A'):,.2f}"
     )
 
     if market_regime.get("price_vs_ma") is not None:
@@ -686,7 +720,7 @@ def main(force_execution: bool = False):
         f"📊 Bullish Signals: {bullish_signals}/{total_signals} ({signal_strength:.0f}%)"
     )
     print(
-        f"   • SPX vs 200MA: {'✅ Above' if market_regime.get('regime') == 'bullish' else '❌ Below'}"
+        f"   • {universe_spec.benchmark_etf} vs 200MA: {'✅ Above' if market_regime.get('regime') == 'bullish' else '❌ Below'}"
     )
     if not has_error(breadth_data):
         print(

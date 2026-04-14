@@ -104,9 +104,9 @@ class MarketAnalysisFacade:
             return False, f"Market data error: {regime.error}"
             
         if regime.trading_allowed:
-            return True, f"Market regime is {regime.regime} (SPX above {period}MA)"
+            return True, f"Market regime is {regime.regime} ({self.benchmark_ticker} above {period}MA)"
         else:
-            return False, f"Market regime is {regime.regime} (SPX below {period}MA) - momentum trading suspended"
+            return False, f"Market regime is {regime.regime} ({self.benchmark_ticker} below {period}MA) - momentum trading suspended"
 
     def get_detailed_status(self, period: int = 200) -> dict:
         """Get detailed market regime status with history.
