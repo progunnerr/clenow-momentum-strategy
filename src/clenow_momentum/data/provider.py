@@ -147,9 +147,9 @@ def get_benchmark_data(
 ) -> pd.DataFrame | None:
     """Fetch regime-detection ETF data for a registered universe.
 
-    Returns OHLCV data for the universe's benchmark_etf (SPY for SP500,
-    IWB for RUSSELL1000, etc.).  This is the series consumed by
-    MarketRegimeDetector and market breadth analysis.
+    Returns unadjusted OHLCV data for the universe's benchmark_etf (SPY for
+    SP500, IWB for RUSSELL1000, etc.). This is the broker-compatible price
+    series consumed by MarketRegimeDetector and market breadth analysis.
 
     Args:
         symbol:    IndexSymbol string ("SP500", "RUSSELL1000", …).
@@ -165,7 +165,7 @@ def get_benchmark_data(
         period=period,
         universe=spec.symbol,
         display_name=spec.display_name,
-        data_kind="benchmark_etf",
+        data_kind="benchmark_etf_raw",
         use_cache=use_cache,
     )
 
@@ -177,8 +177,8 @@ def get_index_data(
 ) -> pd.DataFrame | None:
     """Fetch index-quote data for a registered universe.
 
-    Returns OHLCV data for the universe's benchmark_index (^GSPC for SP500,
-    ^RUI for RUSSELL1000, etc.).  Used for analytics and display.
+    Returns unadjusted OHLCV data for the universe's benchmark_index (^GSPC
+    for SP500, ^RUI for RUSSELL1000, etc.). Used for analytics and display.
 
     Args:
         symbol:    IndexSymbol string ("SP500", "RUSSELL1000", …).
@@ -194,7 +194,7 @@ def get_index_data(
         period=period,
         universe=spec.symbol,
         display_name=spec.display_name,
-        data_kind="benchmark_index",
+        data_kind="benchmark_index_raw",
         use_cache=use_cache,
     )
 

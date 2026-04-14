@@ -35,10 +35,8 @@ def get_tickers_from_spy_holdings(*, yf=None) -> list[str] | None:
         holdings = spy.get_holdings()
         if holdings is None or len(holdings) == 0:
             return None
-        tickers = holdings.index.tolist()
         # Strip suffixes like .B which often appear with class shares
-        tickers = [t.split(".")[0] for t in tickers]
-        return tickers
+        return [ticker.split(".")[0] for ticker in holdings.index.tolist()]
     except Exception:
         return None
 
@@ -89,6 +87,7 @@ def download_stock_data(
 def download_index_data(symbol: str, *, period: str = "1y", yf=None):
     """
     Download OHLCV data for a single index/ETF symbol via yfinance.
+    Uses unadjusted Close values for broker-compatible technical MAs.
     Returns a pandas DataFrame or None on error.
     """
     if yf is None:
@@ -96,6 +95,6 @@ def download_index_data(symbol: str, *, period: str = "1y", yf=None):
         yf = _yf
 
     try:
-        return yf.download(symbol, period=period, auto_adjust=True)
+        return yf.download(symbol, period=period, auto_adjust=False)
     except Exception:
         return None

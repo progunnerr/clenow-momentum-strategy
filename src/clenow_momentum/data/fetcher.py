@@ -10,14 +10,14 @@ from loguru import logger
 def convert_ticker_for_yfinance(ticker: str) -> str:
     """
     Convert ticker symbols to yfinance format.
-    
+
     yfinance uses hyphens instead of dots for certain tickers like:
     - BRK.B -> BRK-B (Berkshire Hathaway Class B)
     - BF.B -> BF-B (Brown-Forman Class B)
-    
+
     Args:
         ticker: Original ticker symbol
-        
+
     Returns:
         Converted ticker symbol for yfinance
     """
@@ -248,6 +248,7 @@ def get_stock_data(tickers: list[str], period: str = "1y") -> pd.DataFrame | Non
 def get_sp500_index_data(period: str = "1y") -> pd.DataFrame | None:
     """
     Fetch S&P 500 index data for market regime analysis.
+    Uses unadjusted Close values for broker-compatible technical MAs.
 
     Args:
         period: Period for data (1y, 2y, 5y, etc.)
@@ -257,7 +258,7 @@ def get_sp500_index_data(period: str = "1y") -> pd.DataFrame | None:
     """
     try:
         logger.info(f"Fetching S&P 500 index data (period: {period})")
-        data = yf.download("^GSPC", period=period, auto_adjust=True)
+        data = yf.download("^GSPC", period=period, auto_adjust=False)
         if data is not None and not data.empty:
             logger.success(f"Successfully fetched S&P 500 index data: {data.shape}")
         else:

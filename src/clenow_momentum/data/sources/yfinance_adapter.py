@@ -66,7 +66,7 @@ class YFinanceMarketDataAdapter(MarketDataSource):
                 period=period,
                 start=start_date,
                 end=end_date,
-                auto_adjust=True,
+                auto_adjust=False,
                 progress=False,
             )
 
@@ -91,6 +91,10 @@ class YFinanceMarketDataAdapter(MarketDataSource):
 
     def get_market_data(self, period: str = "1y", benchmark_ticker: str = "SPY") -> pd.DataFrame:
         """Get market benchmark data for regime detection.
+
+        Benchmark technicals use unadjusted Close values so moving averages
+        match standard broker/chart displays. Universe stock data remains
+        adjusted through get_stock_data() for momentum calculations.
 
         Args:
             period:           yfinance period string.
