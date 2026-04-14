@@ -17,6 +17,10 @@ logs/
 
 # Debug data
 data/debug/
+data/cache/
+scripts/data/
+data/*.csv
+data/portfolio_state.json
 *.debug.csv
 *.debug.json
 .vscode
