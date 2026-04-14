@@ -3,6 +3,8 @@
 These interfaces define contracts for interacting with different brokers
 (IBKR, TD Ameritrade, etc.) without coupling business logic to specific
 broker implementations.
+
+Co-located with trading module for easier navigation and maintenance.
 """
 
 from abc import ABC, abstractmethod
@@ -165,10 +167,10 @@ class BrokerAdapter(ABC):
 
     @abstractmethod
     def get_current_prices(self, tickers: list[str]) -> dict[str, float]:
-        """Get current market prices for tickers.
+        """Get current market prices for market universe securities.
 
         Args:
-            tickers: List of symbols to get prices for
+            tickers: List of symbols from the market universe to get prices for
 
         Returns:
             Dictionary mapping ticker to current price
@@ -198,29 +200,91 @@ class BrokerConnectionError(BrokerError):
 # Data classes for broker integration (to be implemented in domain layer)
 class AccountSummary:
     """Account summary information from broker."""
-
-    pass
+    
+    def __init__(
+        self,
+        total_cash: float = 0.0,
+        net_liquidation: float = 0.0,
+        buying_power: float = 0.0,
+        excess_liquidity: float = 0.0,
+    ):
+        self.total_cash = total_cash
+        self.net_liquidation = net_liquidation
+        self.buying_power = buying_power
+        self.excess_liquidity = excess_liquidity
 
 
 class BrokerPosition:
     """Position information from broker."""
-
-    pass
+    
+    def __init__(
+        self,
+        symbol: str,
+        quantity: float,
+        avg_cost: float,
+        market_value: float,
+        unrealized_pnl: float = 0.0,
+    ):
+        self.symbol = symbol
+        self.quantity = quantity
+        self.avg_cost = avg_cost
+        self.market_value = market_value
+        self.unrealized_pnl = unrealized_pnl
 
 
 class BrokerOrder:
-    """Order to be sent to broker."""
-
-    pass
+    """Order specification for broker."""
+    
+    def __init__(
+        self,
+        symbol: str,
+        action: str,  # "BUY" or "SELL"
+        quantity: int,
+        order_type: str = "MKT",  # "MKT", "LMT", etc.
+        limit_price: float | None = None,
+    ):
+        self.symbol = symbol
+        self.action = action
+        self.quantity = quantity
+        self.order_type = order_type
+        self.limit_price = limit_price
 
 
 class OrderStatusInfo:
     """Order status information from broker."""
-
-    pass
+    
+    def __init__(
+        self,
+        order_id: str,
+        status: OrderStatus,
+        filled: float = 0.0,
+        remaining: float = 0.0,
+        avg_fill_price: float = 0.0,
+    ):
+        self.order_id = order_id
+        self.status = status
+        self.filled = filled
+        self.remaining = remaining
+        self.avg_fill_price = avg_fill_price
 
 
 class ExecutionReport:
     """Trade execution report from broker."""
-
-    pass
+    
+    def __init__(
+        self,
+        order_id: str,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        timestamp: datetime,
+        commission: float = 0.0,
+    ):
+        self.order_id = order_id
+        self.symbol = symbol
+        self.side = side
+        self.quantity = quantity
+        self.price = price
+        self.timestamp = timestamp
+        self.commission = commission

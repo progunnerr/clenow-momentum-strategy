@@ -11,7 +11,7 @@ import pandas as pd
 import yfinance as yf
 from loguru import logger
 
-from ...interfaces.data_sources import DataSourceError, MarketDataSource, TickerSource
+from ..interfaces import DataSourceError, IndexSymbol, MarketDataSource, TickerSource
 
 
 class YFinanceMarketDataAdapter(MarketDataSource):
@@ -108,10 +108,28 @@ class YFinanceMarketDataAdapter(MarketDataSource):
 
 
 class WikipediaTickerAdapter(TickerSource):
-    """Wikipedia S&P 500 ticker source implementation."""
+    """Wikipedia ticker source implementation.
+    
+    Currently supports S&P 500 index only. Can be extended to support
+    additional indices as Wikipedia sources are identified.
+    """
 
-    def get_sp500_tickers(self) -> list[str]:
-        """Get S&P 500 tickers from Wikipedia."""
+    def get_tickers_for_index(self, index: IndexSymbol) -> list[str]:
+        """Get constituents for a given market index."""
+        if index == "SP500":
+            return self._get_sp500_tickers_from_wikipedia()
+        else:
+            raise NotImplementedError(
+                f"Index '{index}' is not supported by Wikipedia ticker source. "
+                f"Supported indices: {self.get_supported_indices()}"
+            )
+    
+    def get_supported_indices(self) -> list[IndexSymbol]:
+        """Get list of indices supported by this ticker source."""
+        return ["SP500"]
+    
+    def _get_sp500_tickers_from_wikipedia(self) -> list[str]:
+        """Internal method to get S&P 500 tickers from Wikipedia."""
         try:
             from .sp500_wikipedia import get_sp500_tickers_wikipedia
 
@@ -126,14 +144,10 @@ class WikipediaTickerAdapter(TickerSource):
         except Exception as e:
             logger.error(f"Error fetching S&P 500 tickers: {e}")
             raise DataSourceError(
-                f"Failed to fetch tickers: {str(e)}",
+                f"Failed to fetch SP500 tickers: {str(e)}",
                 source="wikipedia",
                 original_error=e,
             )
-
-    def get_nasdaq100_tickers(self) -> list[str]:
-        """Get NASDAQ 100 tickers (not implemented)."""
-        raise NotImplementedError("NASDAQ 100 ticker fetching not implemented")
 
     def is_available(self) -> bool:
         """Check if Wikipedia is available."""

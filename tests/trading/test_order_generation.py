@@ -6,8 +6,8 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 # Import directly to avoid dependency issues
+from clenow_momentum.data.interfaces import MarketDataSource
 from clenow_momentum.trading.order_generation import OrderGenerationService, OrderGenerationResult
-from clenow_momentum.interfaces import MarketDataProvider
 
 
 class TestOrderGenerationService:
@@ -16,7 +16,7 @@ class TestOrderGenerationService:
     @pytest.fixture
     def mock_market_data(self):
         """Mock market data provider."""
-        mock_provider = Mock(spec=MarketDataProvider)
+        mock_provider = Mock(spec=MarketDataSource)
         mock_provider.get_current_price.side_effect = lambda ticker: {
             "AAPL": 150.0,
             "GOOGL": 2800.0,
@@ -78,8 +78,8 @@ class TestOrderGenerationService:
         # Target only has AAPL, so MSFT should be exited
         target_portfolio = pd.DataFrame({
             'ticker': ['AAPL'],
-            'shares': [15],
-            'investment': [2250.0],
+            'shares': [5],
+            'investment': [750.0],
             'current_price': [150.0]
         })
         
@@ -110,7 +110,7 @@ class TestOrderGenerationService:
         result = service.generate_orders(
             current_portfolio=current_portfolio,
             target_portfolio=target_portfolio,
-            available_cash=Decimal("2000")  # With buffer, only ~$1000 available
+            available_cash=Decimal("2500")  # With buffer, only AAPL fits
         )
         
         # Should only generate order for AAPL (cheaper position)

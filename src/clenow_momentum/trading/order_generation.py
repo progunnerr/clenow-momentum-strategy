@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from loguru import logger
 
-from ..interfaces import MarketDataSource
+from ..data.interfaces import MarketDataSource
 from .order_strategies import AdjustStrategy, EntryStrategy, ExitStrategy, OrderContext
 
 if TYPE_CHECKING:

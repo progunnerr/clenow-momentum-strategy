@@ -10,11 +10,11 @@ from unittest.mock import Mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src'))
 
 # Direct imports
+from clenow_momentum.data.interfaces import MarketDataSource
 from clenow_momentum.trading.order_generation import OrderGenerationService, OrderGenerationResult
 from clenow_momentum.trading.order_strategies.base import OrderContext
 from clenow_momentum.trading.order_strategies.exit_strategy import ExitStrategy
 from clenow_momentum.trading.order_strategies.entry_strategy import EntryStrategy
-from clenow_momentum.interfaces import MarketDataSource
 
 
 def test_order_context_creation():

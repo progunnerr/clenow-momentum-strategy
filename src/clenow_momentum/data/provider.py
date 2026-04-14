@@ -16,17 +16,17 @@ from .sources.yfinance_source import (
 
 def get_sp500_tickers(use_cache: bool = True, max_age_hours: int = 24) -> list[str]:
     """
-    Get S&P 500 tickers from Wikipedia with optional caching.
+    Get S&P 500 market universe constituents from Wikipedia with optional caching.
 
     Args:
-        use_cache: Whether to use cached tickers (default True)
+        use_cache: Whether to use cached market universe data (default True)
         max_age_hours: Maximum cache age in hours (default 24)
 
     Returns:
-        List of S&P 500 stock tickers (e.g., ['AAPL', 'MSFT', ...])
+        List of ticker symbols in the S&P 500 market universe (e.g., ['AAPL', 'MSFT', ...])
 
     Raises:
-        RuntimeError: If unable to fetch tickers from Wikipedia
+        RuntimeError: If unable to fetch market universe constituents from Wikipedia
     """
     cache_dir = Path("data/cache")
     cache_file = cache_dir / "sp500_tickers.pkl"
@@ -86,17 +86,17 @@ def get_stock_data(
     tickers: list[str], period: str = "1y", use_cache: bool = True
 ) -> pd.DataFrame | None:
     """
-    Fetch historical stock data for given tickers using yfinance.
+    Fetch historical market data for market universe securities using yfinance.
 
     Uses the DataCache system for efficient caching to data/cache folder.
 
     Args:
-        tickers: List of stock tickers
+        tickers: List of ticker symbols from the market universe
         period: Period for data (1y, 2y, 5y, etc.)
         use_cache: Whether to use cached data (default True)
 
     Returns:
-        DataFrame with OHLCV data for all tickers, or None if fetch fails
+        DataFrame with OHLCV data for all market universe securities, or None if fetch fails
     """
     # Check cache first if enabled
     if use_cache:
@@ -132,14 +132,14 @@ def get_sp500_index_data(
     period: str = "1y", use_cache: bool = True
 ) -> pd.DataFrame | None:
     """
-    Fetch S&P 500 index data for market regime analysis.
+    Fetch S&P 500 index data (market universe benchmark) for market regime analysis.
 
     Args:
         period: Period for data (1y, 2y, 5y, etc.)
         use_cache: Whether to use cached data (default True)
 
     Returns:
-        DataFrame with S&P 500 OHLCV data, or None if fetch fails
+        DataFrame with S&P 500 market benchmark OHLCV data, or None if fetch fails
     """
     # Check cache first if enabled
     if use_cache:

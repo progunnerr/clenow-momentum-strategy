@@ -89,13 +89,11 @@ class ResizeStrategy(OrderStrategy):
         """
         from ...strategy.rebalancing import OrderType, RebalancingOrder
 
-        # Get current position
-        position = context.current_portfolio.positions.get(ticker)
-        if not position:
-            raise ValueError(f"Position for {ticker} not found in current portfolio")
+        position = context.get_current_position_info(ticker)
+        current_shares = int(position.get("shares", 0))
 
-        if position.shares <= 0:
-            raise ValueError(f"Invalid current share count for {ticker}: {position.shares}")
+        if current_shares <= 0:
+            raise ValueError(f"Invalid current share count for {ticker}: {current_shares}")
 
         # Get target information
         target_info = context.get_target_info(ticker)
@@ -108,18 +106,18 @@ class ResizeStrategy(OrderStrategy):
         target_shares = int(target_value / current_price)
 
         # Check if we need to reduce the position
-        if target_shares >= position.shares:
+        if target_shares >= current_shares:
             # No reduction needed
             return None
 
         # Calculate shares to sell
-        shares_to_sell = int(position.shares) - target_shares
+        shares_to_sell = current_shares - target_shares
         if shares_to_sell <= 0:
             return None
 
         # Build detailed resize reason
         resize_reason = self._build_resize_reason(
-            ticker, int(position.shares), target_shares, target_value
+            ticker, current_shares, target_shares, target_value
         )
 
         # Calculate order value

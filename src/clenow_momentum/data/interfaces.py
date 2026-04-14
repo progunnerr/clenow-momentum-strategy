@@ -3,11 +3,13 @@
 These interfaces define contracts for accessing market data from various sources
 (yfinance, Bloomberg, Alpha Vantage, etc.) without coupling business logic to
 specific implementations.
+
+Co-located with data module for easier navigation and maintenance.
 """
 
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 
@@ -30,10 +32,10 @@ class MarketDataSource(ABC):
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> pd.DataFrame:
-        """Get OHLCV data for multiple stocks.
+        """Get OHLCV data for market universe securities.
 
         Args:
-            tickers: List of stock symbols
+            tickers: List of ticker symbols from the market universe
             period: Period string (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
             start_date: Start date (alternative to period)
             end_date: End date (alternative to period)
@@ -42,7 +44,7 @@ class MarketDataSource(ABC):
             MultiIndex DataFrame with (ticker, price_type) columns
 
         Raises:
-            DataSourceError: If data cannot be retrieved
+            DataSourceError: If market universe data cannot be retrieved
         """
         pass
 
@@ -108,35 +110,54 @@ class MarketDataSource(ABC):
         except Exception:
             return None
 
+    def get_market_data(self, period: str = "1y") -> pd.DataFrame:
+        """Get market benchmark data (SPY for S&P 500).
+        
+        Convenience method that wraps get_index_data for SPY.
+        
+        Args:
+            period: Period string
+            
+        Returns:
+            DataFrame with SPY OHLCV data
+        """
+        return self.get_index_data("SPY", period=period)
+
+
+# Supported market universe indices
+IndexSymbol = Literal["SP500", "NASDAQ100", "DOW30", "RUSSELL2000"]
+
 
 class TickerSource(ABC):
-    """Abstract interface for ticker list sources.
+    """Abstract interface for market universe ticker sources.
 
-    Provides access to predefined lists of stocks (S&P 500, NASDAQ 100, etc.)
-    from various sources without coupling to specific implementations.
+    Provides access to market universe constituents for various indices
+    without coupling to specific implementations. This generic approach
+    allows adding new indices without breaking existing implementations.
     """
 
     @abstractmethod
-    def get_sp500_tickers(self) -> list[str]:
-        """Get current S&P 500 ticker symbols.
+    def get_tickers_for_index(self, index: IndexSymbol) -> list[str]:
+        """Get constituents for a given market index.
+
+        Args:
+            index: The symbol of the index to retrieve (e.g., 'SP500', 'NASDAQ100')
 
         Returns:
-            List of S&P 500 ticker symbols
+            List of ticker symbols in the specified market universe
 
         Raises:
-            DataSourceError: If ticker list cannot be retrieved
+            DataSourceError: If market universe constituents cannot be retrieved
+            NotImplementedError: If the index is not supported by this source
         """
         pass
 
     @abstractmethod
-    def get_nasdaq100_tickers(self) -> list[str]:
-        """Get current NASDAQ 100 ticker symbols.
+    def get_supported_indices(self) -> list[IndexSymbol]:
+        """Get list of indices supported by this ticker source.
 
         Returns:
-            List of NASDAQ 100 ticker symbols
-
-        Raises:
-            DataSourceError: If ticker list cannot be retrieved
+            List of index symbols that this source can provide
         """
         pass
 
@@ -149,6 +170,46 @@ class TickerSource(ABC):
         """
         pass
 
+    def is_index_supported(self, index: IndexSymbol) -> bool:
+        """Check if a specific index is supported by this source.
+
+        Args:
+            index: Index symbol to check
+
+        Returns:
+            True if the index is supported
+        """
+        return index in self.get_supported_indices()
+
+    # Convenience methods for backward compatibility
+    def get_sp500_tickers(self) -> list[str]:
+        """Get S&P 500 market universe constituents.
+        
+        Convenience method that wraps get_tickers_for_index('SP500').
+        
+        Returns:
+            List of ticker symbols in the S&P 500 market universe
+            
+        Raises:
+            DataSourceError: If market universe constituents cannot be retrieved
+            NotImplementedError: If SP500 is not supported by this source
+        """
+        return self.get_tickers_for_index("SP500")
+        
+    def get_nasdaq100_tickers(self) -> list[str]:
+        """Get NASDAQ 100 ticker symbols.
+        
+        Convenience method that wraps get_tickers_for_index('NASDAQ100').
+        
+        Returns:
+            List of ticker symbols in the NASDAQ 100
+            
+        Raises:
+            DataSourceError: If ticker list cannot be retrieved
+            NotImplementedError: If NASDAQ100 is not supported by this source
+        """
+        return self.get_tickers_for_index("NASDAQ100")
+
 
 class DataSourceError(Exception):
     """Exception raised when data cannot be retrieved from a source."""
@@ -160,38 +221,3 @@ class DataSourceError(Exception):
         super().__init__(f"{source}: {message}" if source else message)
 
 
-class CachedDataSource(MarketDataSource):
-    """Base class for data sources with caching capabilities.
-
-    Provides common caching functionality that can be mixed with
-    any concrete data source implementation.
-    """
-
-    def __init__(self, cache_ttl_hours: int = 24):
-        self.cache_ttl_hours = cache_ttl_hours
-        self._cache: dict[str, dict[str, Any]] = {}
-
-    def _get_cache_key(self, tickers: list[str], period: str) -> str:
-        """Generate cache key for request parameters."""
-        tickers_str = ",".join(sorted(tickers))
-        return f"{tickers_str}_{period}"
-
-    def _is_cache_valid(self, cache_entry: dict[str, Any]) -> bool:
-        """Check if cached data is still valid."""
-        if "timestamp" not in cache_entry:
-            return False
-
-        cache_age_hours = (datetime.now(UTC) - cache_entry["timestamp"]).total_seconds() / 3600
-        return cache_age_hours < self.cache_ttl_hours
-
-    def _get_from_cache(self, cache_key: str) -> pd.DataFrame | None:
-        """Get data from cache if available and valid."""
-        if cache_key in self._cache:
-            cache_entry = self._cache[cache_key]
-            if self._is_cache_valid(cache_entry):
-                return cache_entry["data"]
-        return None
-
-    def _save_to_cache(self, cache_key: str, data: pd.DataFrame) -> None:
-        """Save data to cache with timestamp."""
-        self._cache[cache_key] = {"data": data.copy(), "timestamp": datetime.now(UTC)}

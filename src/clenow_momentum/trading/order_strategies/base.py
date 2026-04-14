@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from ...interfaces import MarketDataSource
+from ...data.interfaces import MarketDataSource
 
 if TYPE_CHECKING:
     from ...domain import RebalancingOrder
@@ -79,6 +79,17 @@ class OrderContext:
             pass
 
         raise ValueError(f"Cannot determine current price for {ticker}")
+
+    def get_current_position_info(self, ticker: str) -> dict:
+        """Get current portfolio information for a ticker."""
+        if self.current_portfolio.empty:
+            raise ValueError(f"Current portfolio is empty - {ticker} not found")
+
+        current_rows = self.current_portfolio[self.current_portfolio["ticker"] == ticker]
+        if current_rows.empty:
+            raise ValueError(f"Ticker {ticker} not found in current portfolio")
+
+        return current_rows.iloc[0].to_dict()
 
     def get_target_info(self, ticker: str) -> dict:
         """Get target portfolio information for a ticker.

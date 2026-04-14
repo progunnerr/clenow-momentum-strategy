@@ -82,13 +82,11 @@ class ExitStrategy(OrderStrategy):
         """
         from ...strategy.rebalancing import OrderType, RebalancingOrder
 
-        # Get current position
-        position = context.current_portfolio.positions.get(ticker)
-        if not position:
-            raise ValueError(f"Position for {ticker} not found in current portfolio")
+        position = context.get_current_position_info(ticker)
+        shares = int(position.get("shares", 0))
 
-        if position.shares <= 0:
-            raise ValueError(f"Invalid share count for {ticker}: {position.shares}")
+        if shares <= 0:
+            raise ValueError(f"Invalid share count for {ticker}: {shares}")
 
         # Get current price
         current_price = context.get_current_price(ticker)
@@ -97,12 +95,12 @@ class ExitStrategy(OrderStrategy):
         exit_reason = self._build_exit_reason(ticker, context)
 
         # Calculate order value
-        order_value = position.shares * current_price
+        order_value = shares * current_price
 
         return RebalancingOrder(
             ticker=ticker,
             order_type=OrderType.SELL,
-            shares=int(position.shares),
+            shares=shares,
             current_price=current_price,
             order_value=order_value,
             reason=exit_reason,
@@ -121,23 +119,7 @@ class ExitStrategy(OrderStrategy):
         """
         reasons = []
 
-        # Check if we can analyze why it was dropped
-        if not context.stock_data.empty:
-            try:
-                if ticker in context.stock_data.columns.get_level_values(1):
-                    ticker_data = context.stock_data.xs(ticker, level=1, axis=1)
-                    if not ticker_data.empty:
-                        reasons.append("Position no longer meets momentum criteria")
-                    else:
-                        reasons.append("No current market data available")
-                else:
-                    reasons.append("Stock data not available for analysis")
-            except (KeyError, IndexError):
-                reasons.append("Unable to analyze current market conditions")
-        else:
-            reasons.append("Not in target portfolio")
-
-        # Add standard exit reason
+        reasons.append("Not in target portfolio")
         reasons.append("Full position exit required for rebalancing")
 
         return ". ".join(reasons)

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from ..interfaces.data_sources import MarketDataSource, TickerSource
+from ..data.interfaces import MarketDataSource, TickerSource
 from .debug_utils import DebugDataManager
 from .ma_analyzer import MAPosition, MovingAverageAnalyzer, ShortTermMAs
 from .market_breadth import BreadthMetrics, MarketBreadthAnalyzer

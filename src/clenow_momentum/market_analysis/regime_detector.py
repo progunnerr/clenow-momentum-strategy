@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pandas as pd
 from loguru import logger
 
-from ..interfaces.data_sources import DataSourceError, MarketDataSource
+from ..data.interfaces import DataSourceError, MarketDataSource
 from .debug_utils import DebugDataManager
 
 
