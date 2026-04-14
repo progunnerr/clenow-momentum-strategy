@@ -44,6 +44,11 @@ from clenow_momentum.trading.portfolio_sync import PortfolioSynchronizer
 from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config, validate_ibkr_config
 
 
+def has_error(result: dict) -> bool:
+    """Return True only when a result dict contains a real error message."""
+    return bool(result.get("error"))
+
+
 def print_trading_schedule_status(config):
     """Print trading schedule status."""
     print("TRADING SCHEDULE STATUS")
@@ -434,7 +439,7 @@ def main(force_execution: bool = False):
     print("DAILY MARKET UPDATE")
     print("=" * 60)
 
-    if "error" not in daily_perf:
+    if not has_error(daily_perf):
         # Format daily change with color indicators
         change_pct = daily_perf.get("daily_change_pct", 0)
         change_emoji = "🟢" if change_pct > 0 else "🔴" if change_pct < 0 else "➖"
@@ -457,7 +462,7 @@ def main(force_execution: bool = False):
         )
 
     # Display Short-term Technical Analysis
-    if "error" not in ma_analysis:
+    if not has_error(ma_analysis):
         print("\n" + "-" * 40)
         print("SHORT-TERM TECHNICALS")
         print("-" * 40)
@@ -519,7 +524,7 @@ def main(force_execution: bool = False):
     print(f"📝 Reason: {regime_reason}")
 
     # Display enhanced market metrics if available
-    if "error" not in detailed_status:
+    if not has_error(detailed_status):
         print("\n" + "-" * 40)
         print("REGIME HISTORY & METRICS")
         print("-" * 40)
@@ -575,7 +580,7 @@ def main(force_execution: bool = False):
     print("MARKET BREADTH ANALYSIS")
     print("-" * 40)
 
-    if "error" not in breadth_data:
+    if not has_error(breadth_data):
         breadth_pct = breadth_data.get("breadth_pct", 0)
         breadth_emoji = (
             "🟢" if breadth_pct >= 60 else "🟡" if breadth_pct >= 50 else "🔴"
@@ -613,7 +618,7 @@ def main(force_execution: bool = False):
     print("ABSOLUTE MOMENTUM ANALYSIS")
     print("-" * 40)
 
-    if "error" not in momentum_data:
+    if not has_error(momentum_data):
         period_return = momentum_data.get("period_return", 0)
         momentum_emoji = (
             "🚀" if period_return > 10 else "📈" if period_return > 0 else "📉"
@@ -656,15 +661,15 @@ def main(force_execution: bool = False):
     total_signals += 1
 
     # 2. Breadth
-    if "error" not in breadth_data and breadth_data.get("breadth_pct", 0) >= 50:
+    if not has_error(breadth_data) and breadth_data.get("breadth_pct", 0) >= 50:
         bullish_signals += 1
-    if "error" not in breadth_data:
+    if not has_error(breadth_data):
         total_signals += 1
 
     # 3. Absolute Momentum
-    if "error" not in momentum_data and momentum_data.get("bullish", False):
+    if not has_error(momentum_data) and momentum_data.get("bullish", False):
         bullish_signals += 1
-    if "error" not in momentum_data:
+    if not has_error(momentum_data):
         total_signals += 1
 
     # Overall assessment
@@ -678,11 +683,11 @@ def main(force_execution: bool = False):
     print(
         f"   • SPX vs 200MA: {'✅ Above' if market_regime.get('regime') == 'bullish' else '❌ Below'}"
     )
-    if "error" not in breadth_data:
+    if not has_error(breadth_data):
         print(
             f"   • Market Breadth: {'✅ Positive' if breadth_data.get('breadth_pct', 0) >= 50 else '❌ Negative'} ({breadth_data.get('breadth_pct', 0):.1f}%)"
         )
-    if "error" not in momentum_data:
+    if not has_error(momentum_data):
         print(
             f"   • Absolute Momentum: {'✅ Positive' if momentum_data.get('bullish', False) else '❌ Negative'} ({momentum_data.get('period_return', 0):+.1f}%)"
         )
