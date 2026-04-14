@@ -234,6 +234,42 @@ class Portfolio:
             del self.positions[ticker]
             logger.debug(f"Removed position: {ticker}")
 
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert portfolio positions to a DataFrame."""
+        if not self.positions:
+            return pd.DataFrame(
+                columns=[
+                    "ticker",
+                    "shares",
+                    "entry_price",
+                    "current_price",
+                    "market_value",
+                    "unrealized_pnl",
+                    "unrealized_pnl_pct",
+                    "entry_date",
+                    "atr",
+                    "stop_loss",
+                ]
+            )
+
+        rows = []
+        for position in self.positions.values():
+            rows.append(
+                {
+                    "ticker": position.ticker,
+                    "shares": position.shares,
+                    "entry_price": position.entry_price,
+                    "current_price": position.current_price,
+                    "market_value": position.market_value,
+                    "unrealized_pnl": position.unrealized_pnl,
+                    "unrealized_pnl_pct": position.unrealized_pnl_pct,
+                    "entry_date": position.entry_date,
+                    "atr": position.atr,
+                    "stop_loss": position.stop_loss,
+                }
+            )
+        return pd.DataFrame(rows)
+
 
 def save_ibkr_portfolio(portfolio: Portfolio, filepath: Path | None = None) -> Path:
     """
@@ -276,6 +312,11 @@ def save_ibkr_portfolio(portfolio: Portfolio, filepath: Path | None = None) -> P
 
     logger.info(f"Saved IBKR portfolio state to {filepath}")
     return filepath
+
+
+def save_portfolio_state(portfolio: Portfolio, filepath: Path | None = None) -> Path:
+    """Backward-compatible alias for saving portfolio state."""
+    return save_ibkr_portfolio(portfolio, filepath)
 
 
 def load_portfolio_state(filepath: Path | None = None) -> Portfolio:

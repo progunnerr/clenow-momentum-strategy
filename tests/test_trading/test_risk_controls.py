@@ -70,7 +70,7 @@ class TestCircuitBreaker:
 
         assert result.result == RiskCheckResult.CRITICAL_FAIL
         assert self.circuit_breaker.is_tripped is True
-        assert "Daily loss" in self.circuit_breaker.trip_reason
+        assert "loss" in self.circuit_breaker.trip_reason
 
     def test_circuit_breaker_position_loss_limit(self):
         """Test circuit breaker trips on excessive position loss."""

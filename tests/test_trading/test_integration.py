@@ -1,246 +1,155 @@
-"""
-Integration tests for IBKR trading system.
+"""Integration-style tests for the current trading manager workflow."""
 
-These tests validate the complete workflow from analysis to execution.
-"""
-
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clenow_momentum.strategy.rebalancing import OrderType, RebalancingOrder
-from clenow_momentum.trading.trading_manager import TradingManager
+from clenow_momentum.data.sources.ibkr_client import AccountSummary
+from clenow_momentum.strategy.rebalancing import OrderType, Portfolio, RebalancingOrder
+from clenow_momentum.trading import validate_ibkr_config
+from clenow_momentum.trading.trading_manager import TradingManager, TradingManagerError
 
 
 class TestIBKRIntegration:
-    """Test complete IBKR integration workflows."""
+    """Test complete trading-manager workflows using mocked broker dependencies."""
 
     def setup_method(self):
-        """Set up test fixtures."""
         self.test_config = {
             "strategy_allocation": 100000,
-            "ibkr_host": "127.0.0.1",
-            "ibkr_port": 7497,  # TWS Paper
-            "ibkr_client_id": 1,
-            "ibkr_account_id": "TEST123",
-            "ibkr_timeout": 30,
-            "ibkr_auto_reconnect": True,
             "portfolio_state_file": "test_portfolio.json",
             "cash_buffer": 0.02,
             "max_positions": 20,
             "max_position_pct": 0.05,
             "risk_per_trade": 0.001,
+            "ibkr": {
+                "host": "127.0.0.1",
+                "port": 7497,
+                "client_id": 1,
+                "account_id": "TEST123",
+                "timeout": 30,
+                "auto_reconnect": True,
+            },
+            "ibkr_host": "127.0.0.1",
+            "ibkr_port": 7497,
+            "ibkr_client_id": 1,
+            "ibkr_account_id": "TEST123",
+            "ibkr_timeout": 30,
+            "ibkr_auto_reconnect": True,
         }
 
-        self.sample_orders = [
-            RebalancingOrder(
-                ticker="AAPL",
-                order_type=OrderType.SELL,
-                shares=50,
-                current_price=150.0,
-                order_value=7500.0,
-                reason="Reduce position",
-                priority=1,
-            ),
-            RebalancingOrder(
-                ticker="GOOGL",
-                order_type=OrderType.BUY,
-                shares=10,
-                current_price=2500.0,
-                order_value=25000.0,
-                reason="New position",
-                priority=3,
-            ),
-            RebalancingOrder(
-                ticker="MSFT",
-                order_type=OrderType.BUY,
-                shares=25,
-                current_price=300.0,
-                order_value=7500.0,
-                reason="Increase position",
-                priority=4,
-            ),
-        ]
-
-    @pytest.mark.asyncio
-    @patch("clenow_momentum.trading.trading_manager.create_ibkr_connector")
-    @patch("clenow_momentum.trading.trading_manager.validate_ibkr_config")
-    async def test_risk_controls_integration(self, mock_validate, mock_create_connector):
-        """Test risk controls integration in complete workflow."""
-        mock_validate.return_value = []
-
-        mock_connector = AsyncMock()
-        mock_connector.connect.return_value = True
-        mock_connector.get_account_info.return_value = {
-            "net_liquidation": 100000,
-            "total_cash": 1000,  # Very low cash
-            "positions": {},
-        }
-        mock_create_connector.return_value = mock_connector
-
-        # Create risky orders (too large positions)
+    def test_risk_controls_integration(self):
         risky_orders = [
             RebalancingOrder(
                 ticker="AAPL",
                 order_type=OrderType.BUY,
                 shares=1000,
                 current_price=150.0,
-                order_value=150000.0,  # 150% of account - way too large
+                order_value=150000.0,
                 reason="Dangerous position",
             )
         ]
+        trading_manager = TradingManager(self.test_config)
+        trading_manager.is_connected = True
+        trading_manager.ibkr_client = MagicMock()
+        trading_manager.ibkr_client.get_account_summary.return_value = AccountSummary(
+            net_liquidation=100000.0,
+            buying_power=1000.0,
+            total_cash=1000.0,
+            excess_liquidity=1000.0,
+        )
 
-        with patch("clenow_momentum.trading.trading_manager.load_portfolio_state") as mock_load:
-            mock_portfolio = MagicMock()
-            mock_portfolio.cash = 1000
-            mock_portfolio.total_market_value = 99000
-            mock_portfolio.positions = {}
-            mock_load.return_value = mock_portfolio
+        portfolio = Portfolio(cash=1000.0)
+        execution_results = trading_manager.execute_rebalancing(
+            risky_orders, pre_synced_portfolio=portfolio
+        )
 
-            async with TradingManager(self.test_config) as trading_manager:
-                execution_results = await trading_manager.execute_rebalancing(risky_orders)
+        assert execution_results["status"] == "blocked_by_risk_controls"
+        assert execution_results["risk_checks_passed"] is False
+        assert "risk" in execution_results["risk_reason"].lower()
 
-                # Should be blocked by risk controls
-                assert execution_results["status"] == "blocked_by_risk_controls"
-                assert execution_results["risk_checks_passed"] is False
-                assert "risk" in execution_results["risk_reason"].lower()
-
-    @pytest.mark.asyncio
-    @patch("clenow_momentum.trading.trading_manager.create_ibkr_connector")
-    @patch("clenow_momentum.trading.trading_manager.validate_ibkr_config")
-    async def test_error_handling_and_recovery(self, mock_validate, mock_create_connector):
-        """Test error handling and recovery scenarios."""
-        mock_validate.return_value = []
-
-        # Test connection failure
-        mock_connector = AsyncMock()
-        mock_connector.connect.return_value = False
-        mock_create_connector.return_value = mock_connector
+    @patch("clenow_momentum.trading.trading_manager.SyncTradingExecutionEngine")
+    @patch("clenow_momentum.trading.trading_manager.PortfolioSynchronizer")
+    @patch("clenow_momentum.trading.trading_manager.IBKRClient")
+    def test_error_handling_and_recovery(
+        self, mock_ibkr_client_cls, mock_portfolio_sync_cls, mock_execution_engine_cls
+    ):
+        mock_ibkr_client = MagicMock()
+        mock_ibkr_client.connect.side_effect = RuntimeError("Connection failure")
+        mock_ibkr_client_cls.return_value = mock_ibkr_client
 
         trading_manager = TradingManager(self.test_config)
 
-        with pytest.raises(Exception):  # Should raise TradingManagerError  # noqa: B017
-            await trading_manager.initialize()
+        with pytest.raises(TradingManagerError):
+            trading_manager.initialize()
 
-        # Test successful recovery after fixing connection
-        mock_connector.connect.return_value = True
-        await trading_manager.initialize()
+        mock_ibkr_client.connect.side_effect = None
+        assert trading_manager.initialize() is True
         assert trading_manager.is_connected is True
 
-    @pytest.mark.asyncio
-    @patch("clenow_momentum.trading.trading_manager.create_ibkr_connector")
-    @patch("clenow_momentum.trading.trading_manager.validate_ibkr_config")
-    async def test_emergency_stop_scenario(self, mock_validate, mock_create_connector):
-        """Test emergency stop functionality."""
-        mock_validate.return_value = []
+    def test_emergency_stop_scenario(self):
+        trading_manager = TradingManager(self.test_config)
+        trading_manager.trading_session_active = True
+        trading_manager.execution_engine = MagicMock()
+        trading_manager.execution_engine.get_active_orders.return_value = ["AAPL", "GOOGL"]
+        trading_manager.execution_engine.cancel_order.return_value = True
 
-        mock_connector = AsyncMock()
-        mock_connector.connect.return_value = True
-        mock_connector.get_account_info.return_value = {
-            "net_liquidation": 100000,
-            "total_cash": 10000,
-            "positions": {},
-        }
-        mock_create_connector.return_value = mock_connector
+        trading_manager.emergency_stop("Market crash detected")
 
-        async with TradingManager(self.test_config) as trading_manager:
-            # Simulate active trading session
-            trading_manager.trading_session_active = True
+        assert trading_manager.trading_session_active is False
+        assert trading_manager.risk_control_system.circuit_breaker.is_tripped is True
+        assert trading_manager.execution_engine.cancel_order.call_count == 2
 
-            # Mock active orders
-            if trading_manager.execution_engine:
-                trading_manager.execution_engine.active_orders = {
-                    "AAPL": MagicMock(),
-                    "GOOGL": MagicMock(),
-                }
+    @patch("clenow_momentum.trading.trading_manager.save_ibkr_portfolio")
+    @patch("clenow_momentum.trading.trading_manager.load_portfolio_state")
+    def test_portfolio_discrepancy_detection(self, mock_load_portfolio, mock_save_portfolio):
+        trading_manager = TradingManager(self.test_config)
+        trading_manager.is_connected = True
+        trading_manager.ibkr_client = MagicMock()
+        trading_manager.ibkr_client.get_positions.return_value = [
+            MagicMock(symbol="AAPL", quantity=100, avg_cost=150.0, market_value=15000.0),
+            MagicMock(symbol="TSLA", quantity=50, avg_cost=800.0, market_value=40000.0),
+        ]
+        trading_manager.ibkr_client.get_account_summary.return_value = AccountSummary(
+            net_liquidation=100000.0,
+            buying_power=200000.0,
+            total_cash=15000.0,
+            excess_liquidity=160000.0,
+        )
+        mock_load_portfolio.return_value = Portfolio(cash=10000.0)
 
-            # Trigger emergency stop
-            await trading_manager.emergency_stop("Market crash detected")
+        synced_portfolio = trading_manager.sync_portfolio_only()
 
-            # Verify emergency stop effects
-            assert trading_manager.trading_session_active is False
-            assert trading_manager.risk_control_system.circuit_breaker.is_tripped is True
-
-    @pytest.mark.asyncio
-    @patch("clenow_momentum.trading.trading_manager.create_ibkr_connector")
-    @patch("clenow_momentum.trading.trading_manager.validate_ibkr_config")
-    async def test_portfolio_discrepancy_detection(self, mock_validate, mock_create_connector):
-        """Test portfolio discrepancy detection and reconciliation."""
-        mock_validate.return_value = []
-
-        mock_connector = AsyncMock()
-        mock_connector.connect.return_value = True
-        mock_create_connector.return_value = mock_connector
-
-        # Mock discrepant account info
-        mock_connector.get_account_info.return_value = {
-            "total_cash": 15000,  # Different from portfolio
-            "net_liquidation": 100000,
-            "positions": {
-                "AAPL": {"shares": 100, "avg_cost": 150, "market_value": 15000, "unrealized_pnl": 0},
-                "TSLA": {"shares": 50, "avg_cost": 800, "market_value": 40000, "unrealized_pnl": 0},  # Not in portfolio
-            },
-        }
-
-        with patch("clenow_momentum.trading.trading_manager.load_portfolio_state") as mock_load:
-            from datetime import UTC, datetime
-
-            from clenow_momentum.strategy.rebalancing import Portfolio, Position
-
-            mock_portfolio = Portfolio(cash=10000)  # Different from IBKR
-            # Add AAPL position (TSLA is missing)
-            position = Position(
-                ticker="AAPL",
-                shares=100,
-                entry_price=150.0,
-                current_price=150.0,
-                entry_date=datetime.now(UTC),
-                atr=5.0
-            )
-            mock_portfolio.add_position(position)
-            mock_load.return_value = mock_portfolio
-
-            async with TradingManager(self.test_config) as trading_manager:
-                # This should detect and handle discrepancies
-                synced_portfolio = await trading_manager.sync_portfolio_only()
-
-                # Portfolio should be updated with IBKR data
-                assert synced_portfolio is not None
+        assert synced_portfolio.cash == 15000.0
+        assert "AAPL" in synced_portfolio.positions
+        assert "TSLA" in synced_portfolio.positions
+        mock_save_portfolio.assert_called_once()
 
     def test_configuration_validation(self):
-        """Test configuration validation."""
-        from clenow_momentum.trading import validate_ibkr_config
-
-        # Test valid configuration
-        valid_config = self.test_config.copy()
-        issues = validate_ibkr_config(valid_config)
+        issues = validate_ibkr_config(self.test_config)
         critical_issues = [issue for issue in issues if "❌" in issue]
         assert len(critical_issues) == 0
 
-        # Test invalid configuration
-        invalid_config = valid_config.copy()
-        invalid_config["ibkr_host"] = ""
-        invalid_config["ibkr_port"] = 0
-
+        invalid_config = {
+            **self.test_config,
+            "ibkr": {
+                **self.test_config["ibkr"],
+                "host": "",
+                "port": 0,
+            },
+        }
         issues = validate_ibkr_config(invalid_config)
         critical_issues = [issue for issue in issues if "❌" in issue]
         assert len(critical_issues) > 0
 
-    @pytest.mark.asyncio
-    async def test_trading_manager_context_manager(self):
-        """Test trading manager as context manager."""
+    def test_trading_manager_context_manager(self):
         with (
-            patch("clenow_momentum.trading.trading_manager.create_ibkr_connector") as mock_create,
-            patch("clenow_momentum.trading.trading_manager.validate_ibkr_config") as mock_validate,
+            patch.object(TradingManager, "initialize") as mock_init,
+            patch.object(TradingManager, "disconnect") as mock_disconnect,
         ):
-            mock_validate.return_value = []
-            mock_connector = AsyncMock()
-            mock_connector.connect.return_value = True
-            mock_create.return_value = mock_connector
+            mock_init.return_value = True
 
-            # Should connect on entry and disconnect on exit
-            async with TradingManager(self.test_config) as trading_manager:
-                assert trading_manager.is_connected is True
+            with TradingManager(self.test_config) as trading_manager:
+                assert isinstance(trading_manager, TradingManager)
 
-            # After exit, should be disconnected
-            assert trading_manager.is_connected is False
+            mock_init.assert_called_once()
+            mock_disconnect.assert_called_once()

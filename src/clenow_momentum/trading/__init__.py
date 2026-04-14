@@ -1,6 +1,7 @@
 """Trading execution and broker connectivity."""
 
 from clenow_momentum.data.sources.ibkr_client import get_trading_mode
+from clenow_momentum.utils.config import validate_ibkr_config
 from .execution_engine_sync import ExecutionError, SyncTradingExecutionEngine
 from .portfolio_sync import PortfolioSyncError, PortfolioSynchronizer
 from .risk_controls import (
@@ -46,4 +47,5 @@ __all__ = [
     "OrderGenerationResult",
     # Utility functions
     "get_trading_mode",
+    "validate_ibkr_config",
 ]
