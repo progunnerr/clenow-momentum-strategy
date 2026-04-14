@@ -5,35 +5,83 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from src.clenow_momentum.data import get_sp500_index_data, get_sp500_tickers, get_stock_data
+from src.clenow_momentum.data import (
+    get_sp500_index_data,
+    get_sp500_tickers,
+    get_stock_data,
+    get_universe_tickers,
+)
 
+
+# ---------------------------------------------------------------------------
+# Back-compat: get_sp500_tickers still works
+# ---------------------------------------------------------------------------
 
 class TestGetSP500Tickers:
-    """Test S&P 500 ticker retrieval."""
+    """get_sp500_tickers() delegates to get_universe_tickers('SP500')."""
 
-    @patch("src.clenow_momentum.data.provider.fetch_sp500_tickers_from_wikipedia")
+    @patch("src.clenow_momentum.data.provider.fetch_index_tickers_from_wikipedia")
     def test_successful_fetch(self, mock_fetch):
         mock_fetch.return_value = ["AAPL", "MSFT", "GOOGL", "AMZN"]
 
         tickers = get_sp500_tickers(use_cache=False)
 
         assert tickers == ["AAPL", "MSFT", "GOOGL", "AMZN"]
-        mock_fetch.assert_called_once_with(timeout=10)
+        mock_fetch.assert_called_once()
 
-    @patch("src.clenow_momentum.data.provider.fetch_sp500_tickers_from_wikipedia")
+    @patch("src.clenow_momentum.data.provider.fetch_index_tickers_from_wikipedia")
     def test_fetch_exception_raises_runtime_error(self, mock_fetch):
         mock_fetch.side_effect = Exception("Network error")
 
         with pytest.raises(RuntimeError, match="Unable to fetch S&P 500 tickers"):
             get_sp500_tickers(use_cache=False)
 
-    @patch("src.clenow_momentum.data.provider.fetch_sp500_tickers_from_wikipedia")
+    @patch("src.clenow_momentum.data.provider.fetch_index_tickers_from_wikipedia")
     def test_empty_fetch_raises_runtime_error(self, mock_fetch):
         mock_fetch.return_value = []
 
         with pytest.raises(RuntimeError, match="Unable to fetch S&P 500 tickers"):
             get_sp500_tickers(use_cache=False)
 
+
+# ---------------------------------------------------------------------------
+# Generic: get_universe_tickers works for SP500 and RUSSELL1000
+# ---------------------------------------------------------------------------
+
+class TestGetUniverseTickers:
+    """get_universe_tickers() supports all registered universes."""
+
+    @pytest.mark.parametrize("symbol", ["SP500", "RUSSELL1000"])
+    @patch("src.clenow_momentum.data.provider.fetch_index_tickers_from_wikipedia")
+    def test_successful_fetch(self, mock_fetch, symbol):
+        mock_fetch.return_value = ["AAPL", "MSFT"]
+
+        tickers = get_universe_tickers(symbol, use_cache=False)
+
+        assert tickers == ["AAPL", "MSFT"]
+        mock_fetch.assert_called_once()
+
+    def test_unknown_universe_raises_value_error(self):
+        with pytest.raises(ValueError, match="Unknown universe"):
+            get_universe_tickers("INVALID", use_cache=False)
+
+    @patch("src.clenow_momentum.data.provider.fetch_index_tickers_from_wikipedia")
+    def test_russell1000_uses_correct_spec(self, mock_fetch):
+        """Confirm the RUSSELL1000 spec is passed to the fetcher."""
+        from src.clenow_momentum.data.universes import UNIVERSES
+        mock_fetch.return_value = ["AAPL"]
+
+        get_universe_tickers("RUSSELL1000", use_cache=False)
+
+        called_spec = mock_fetch.call_args[0][0]
+        assert called_spec == UNIVERSES["RUSSELL1000"]
+        assert called_spec.benchmark_etf == "IWB"
+        assert called_spec.benchmark_index == "^RUI"
+
+
+# ---------------------------------------------------------------------------
+# Stock data
+# ---------------------------------------------------------------------------
 
 class TestGetStockData:
     """Test stock data retrieval."""
@@ -50,15 +98,14 @@ class TestGetStockData:
         )
         mock_download.return_value = mock_data
 
-        tickers = ["AAPL", "MSFT"]
-        data = get_stock_data(tickers, period="1y", use_cache=False)
+        data = get_stock_data(["AAPL", "MSFT"], period="1y", use_cache=False)
 
         assert data is not None
         assert not data.empty
         mock_download.assert_called_once()
 
     @patch("src.clenow_momentum.data.provider.download_stock_data")
-    def test_data_fetch_exception(self, mock_download):
+    def test_data_fetch_exception_returns_none(self, mock_download):
         mock_download.side_effect = Exception("API error")
 
         data = get_stock_data(["AAPL"], period="1y", use_cache=False)
@@ -66,17 +113,18 @@ class TestGetStockData:
         assert data is None
 
 
+# ---------------------------------------------------------------------------
+# SP500 index data (back-compat wrapper)
+# ---------------------------------------------------------------------------
+
 class TestGetSP500IndexData:
-    """Test S&P 500 index data retrieval."""
+    """get_sp500_index_data() delegates to get_index_data('SP500')."""
 
     @patch("src.clenow_momentum.data.provider.download_index_data")
     def test_successful_sp500_fetch(self, mock_download):
         dates = pd.date_range("2024-01-01", periods=5, freq="D")
         mock_data = pd.DataFrame(
-            {
-                "Close": [4500.0] * 5,
-                "Volume": [1_000_000] * 5,
-            },
+            {"Close": [4500.0] * 5, "Volume": [1_000_000] * 5},
             index=dates,
         )
         mock_download.return_value = mock_data
@@ -88,7 +136,7 @@ class TestGetSP500IndexData:
         mock_download.assert_called_once()
 
     @patch("src.clenow_momentum.data.provider.download_index_data")
-    def test_sp500_fetch_exception(self, mock_download):
+    def test_sp500_fetch_exception_returns_none(self, mock_download):
         mock_download.side_effect = Exception("API error")
 
         data = get_sp500_index_data(period="1y", use_cache=False)

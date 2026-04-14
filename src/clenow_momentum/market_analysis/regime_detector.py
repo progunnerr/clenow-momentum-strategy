@@ -38,34 +38,45 @@ class MarketRegimeDetector:
     """
 
     def __init__(
-        self, market_data_source: MarketDataSource, debug_manager: DebugDataManager | None = None
+        self,
+        market_data_source: MarketDataSource,
+        debug_manager: DebugDataManager | None = None,
+        benchmark_ticker: str = "SPY",
     ):
         """Initialize regime detector.
 
         Args:
-            market_data_source: Data source for S&P 500 data
-            debug_manager: Optional debug data manager
+            market_data_source: Data source for benchmark data.
+            debug_manager:      Optional debug data manager.
+            benchmark_ticker:   ETF/index symbol used for regime detection.
+                                Defaults to "SPY" (S&P 500 proxy).
+                                Pass the active universe's benchmark_etf when
+                                switching universes (e.g. "IWB" for Russell 1000).
         """
         self.market_data_source = market_data_source
         self.debug_manager = debug_manager or DebugDataManager()
+        self.benchmark_ticker = benchmark_ticker
 
     def check_regime(self, ma_period: int = 200) -> RegimeStatus:
-        """Check current market regime based on S&P 500 vs moving average.
+        """Check current market regime based on benchmark vs moving average.
 
         Args:
-            ma_period: Moving average period for regime check (default 200)
+            ma_period: Moving average period for regime check (default 200).
 
         Returns:
-            RegimeStatus with all regime information
+            RegimeStatus with all regime information.
         """
-        logger.info(f"Checking market regime (SPY vs {ma_period}-day MA)...")
+        logger.info(
+            f"Checking market regime ({self.benchmark_ticker} vs {ma_period}-day MA)..."
+        )
 
         try:
-            # Get S&P 500 data (using SPY ETF as proxy)
-            spy_data = self._get_spy_data()
+            benchmark_data = self._get_regime_benchmark_data()
 
-            if spy_data is None or spy_data.empty:
-                logger.error("Could not fetch S&P 500 data for market regime check")
+            if benchmark_data is None or benchmark_data.empty:
+                logger.error(
+                    f"Could not fetch {self.benchmark_ticker} data for market regime check"
+                )
                 return RegimeStatus(
                     regime="unknown",
                     current_price=None,
@@ -77,8 +88,7 @@ class MarketRegimeDetector:
                     error="Could not fetch market data",
                 )
 
-            # Calculate regime status
-            return self._calculate_regime_status(spy_data, ma_period)
+            return self._calculate_regime_status(benchmark_data, ma_period)
 
         except Exception as e:
             logger.error(f"Error checking market regime: {e}")
@@ -93,49 +103,54 @@ class MarketRegimeDetector:
                 error=str(e),
             )
 
-    def _get_spy_data(self) -> pd.DataFrame | None:
-        """Get S&P 500 data using SPY ETF as proxy.
+    def _get_regime_benchmark_data(self) -> pd.DataFrame | None:
+        """Fetch benchmark ETF/index data for regime detection.
+
+        Uses self.benchmark_ticker (set at construction time from the active
+        universe spec). Defaults to SPY for backward compatibility.
 
         Returns:
-            DataFrame with SPY OHLCV data or None if failed
+            DataFrame with benchmark OHLCV data or None if failed.
         """
         try:
-            # Get 1 year of data to ensure we have enough for 200-day MA
-            spy_data = self.market_data_source.get_index_data("SPY", period="1y")
+            data = self.market_data_source.get_market_data(
+                period="1y", benchmark_ticker=self.benchmark_ticker
+            )
 
-            if spy_data is not None and not spy_data.empty:
-                logger.debug(f"Successfully fetched SPY data: {spy_data.shape}")
+            if data is not None and not data.empty:
+                logger.debug(
+                    f"Fetched {self.benchmark_ticker} regime data: {data.shape}"
+                )
+                self.debug_manager.save_debug_data(data, "regime_benchmark_data")
+                return data
 
-                # Save debug data if enabled
-                self.debug_manager.save_debug_data(spy_data, "spy_regime_data")
-
-                return spy_data
-
-            logger.warning("Failed to fetch SPY data - empty response")
+            logger.warning(
+                f"Failed to fetch {self.benchmark_ticker} data — empty response"
+            )
             return None
 
         except DataSourceError as e:
-            logger.error(f"Data source error fetching SPY data: {e}")
+            logger.error(f"Data source error fetching regime benchmark data: {e}")
             return None
         except Exception as e:
-            logger.error(f"Unexpected error fetching SPY data: {e}")
+            logger.error(f"Unexpected error fetching regime benchmark data: {e}")
             return None
 
-    def _calculate_regime_status(self, spy_data: pd.DataFrame, ma_period: int) -> RegimeStatus:
-        """Calculate regime status from SPY data.
+    def _calculate_regime_status(self, benchmark_data: pd.DataFrame, ma_period: int) -> RegimeStatus:
+        """Calculate regime status from benchmark data.
 
         Args:
-            spy_data: SPY OHLCV data
+            benchmark_data: Benchmark OHLCV data
             ma_period: Moving average period
 
         Returns:
             RegimeStatus with calculated values
         """
-        if "Close" not in spy_data.columns:
-            raise ValueError("SPY data must contain 'Close' column")
+        if "Close" not in benchmark_data.columns:
+            raise ValueError("Benchmark data must contain 'Close' column")
 
         # Calculate moving average
-        close_prices = spy_data["Close"].dropna()
+        close_prices = benchmark_data["Close"].dropna()
         ma = close_prices.rolling(window=ma_period, min_periods=ma_period).mean()
 
         # Get latest values - ensure scalar values
@@ -150,7 +165,7 @@ class MarketRegimeDetector:
                 ma_value=None,
                 price_vs_ma_pct=None,
                 trading_allowed=False,
-                latest_date=spy_data.index[-1].strftime("%Y-%m-%d"),
+                latest_date=benchmark_data.index[-1].strftime("%Y-%m-%d"),
                 ma_period=ma_period,
                 error=f"Insufficient data for {ma_period}-day MA",
             )
@@ -161,7 +176,7 @@ class MarketRegimeDetector:
         regime = "bullish" if is_bullish else "bearish"
 
         # Get date of latest data
-        latest_date = spy_data.index[-1].strftime("%Y-%m-%d")
+        latest_date = benchmark_data.index[-1].strftime("%Y-%m-%d")
 
         result = RegimeStatus(
             regime=regime,
@@ -175,7 +190,7 @@ class MarketRegimeDetector:
 
         logger.info(
             f"Market Regime: {regime.upper()} "
-            f"(SPX: ${current_price:.2f} vs {ma_period}MA: ${ma_value:.2f}, "
+            f"({self.benchmark_ticker}: ${current_price:.2f} vs {ma_period}MA: ${ma_value:.2f}, "
             f"{price_vs_ma_pct:+.2f}%)"
         )
 
@@ -201,12 +216,13 @@ class MarketRegimeDetector:
 
         if regime_status.trading_allowed:
             reason = (
-                f"Market regime is {regime_status.regime} (SPX above {regime_status.ma_period}MA)"
+                f"Market regime is {regime_status.regime} "
+                f"(benchmark above {regime_status.ma_period}MA)"
             )
         else:
             reason = (
                 f"Market regime is {regime_status.regime} "
-                f"(SPX below {regime_status.ma_period}MA) - momentum trading suspended"
+                f"(benchmark below {regime_status.ma_period}MA) - momentum trading suspended"
             )
 
         return regime_status.trading_allowed, reason

@@ -29,6 +29,8 @@ def load_config() -> dict:
         logger.warning(f".env file not found at {env_file}, using defaults")
 
     config = {
+        # Universe selection (controls both constituents and benchmark)
+        "universe": os.getenv("MARKET_UNIVERSE", "SP500").upper(),
         # Strategy Settings
         "strategy_allocation": float(os.getenv("STRATEGY_ALLOCATION", "100000")),
         "risk_per_trade": float(os.getenv("RISK_PER_TRADE", "0.001")),
@@ -73,7 +75,17 @@ def load_config() -> dict:
         "ibkr_auto_reconnect": os.getenv("IBKR_AUTO_RECONNECT", "true").lower() == "true",
     }
 
+    # Validate universe against the runtime registry (lazy import avoids circular deps)
+    try:
+        from ..data.universes import get_universe_spec
+        get_universe_spec(config["universe"])
+    except ImportError:
+        pass  # tolerate missing registry during early bootstrap
+    except ValueError as e:
+        logger.warning(f"MARKET_UNIVERSE config issue: {e}")
+
     # Log key settings
+    logger.info(f"Universe: {config['universe']}")
     logger.info(f"Strategy Allocation: ${config['strategy_allocation']:,.0f}")
     logger.info(f"Risk per Trade: {config['risk_per_trade']:.3%}")
     logger.info(f"Max Positions: {config['max_positions']}")

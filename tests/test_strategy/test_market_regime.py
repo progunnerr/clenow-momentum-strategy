@@ -13,9 +13,14 @@ from clenow_momentum.market_analysis.regime_detector import MarketRegimeDetector
 
 
 def create_mock_market_data_source(spy_data: pd.DataFrame | None) -> Mock:
-    """Create a mocked MarketDataSource returning provided SPY data."""
+    """Create a mocked MarketDataSource returning provided benchmark data.
+
+    The regime detector now calls get_market_data(period, benchmark_ticker)
+    rather than get_index_data directly, so we mock that method.
+    """
     market_data_source = Mock(spec=MarketDataSource)
-    market_data_source.get_index_data.return_value = spy_data
+    market_data_source.get_market_data.return_value = spy_data
+    market_data_source.get_index_data.return_value = spy_data  # keep for other callers
     return market_data_source
 
 
@@ -108,7 +113,7 @@ class TestMarketRegimeDetector:
 
         assert result.regime == "unknown"
         assert result.trading_allowed is False
-        assert "SPY data must contain 'Close' column" in (result.error or "")
+        assert "must contain 'Close' column" in (result.error or "")
 
 
 class TestShouldTradeMomentum:

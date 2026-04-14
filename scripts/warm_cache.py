@@ -9,27 +9,31 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from clenow_momentum.data import get_sp500_tickers, get_stock_data
+from clenow_momentum.data import get_universe_tickers, get_stock_data
 from clenow_momentum.data.cache import DataCache
+from clenow_momentum.utils.config import load_config
 from loguru import logger
 
 
 def main():
-    """Pre-fetch and cache S&P 500 data."""
-    print("\n🔥 WARMING CACHE - Fetching S&P 500 Data")
+    """Pre-fetch and cache universe data (driven by MARKET_UNIVERSE env var)."""
+    config = load_config()
+    universe = config.get("universe", "SP500")
+
+    print(f"\n🔥 WARMING CACHE - Fetching {universe} Data")
     print("="*50)
-    
+
     # Initialize cache
     cache = DataCache(cache_dir="data/cache")
-    
-    # Get S&P 500 tickers
-    print("Getting S&P 500 ticker list...")
-    tickers = get_sp500_tickers()
-    
+
+    # Get universe tickers
+    print(f"Getting {universe} ticker list...")
+    tickers = get_universe_tickers(universe)
+
     if not tickers:
-        print("❌ Failed to get S&P 500 tickers")
+        print(f"❌ Failed to get {universe} tickers")
         return 1
-    
+
     print(f"Found {len(tickers)} tickers")
     
     # Periods to cache

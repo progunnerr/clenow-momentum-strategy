@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Initialize logger configuration
 
-from clenow_momentum.data import get_sp500_tickers, get_stock_data
+from clenow_momentum.data import get_universe_tickers, get_stock_data
 from clenow_momentum.data.sources.yfinance_adapter import (
     WikipediaTickerAdapter,
     YFinanceMarketDataAdapter,
@@ -325,15 +325,16 @@ def main(force_execution: bool = False):
     # Show position sizing guidance
     print_account_sizing(config)
 
-    # Step 1: Get S&P 500 tickers
-    print("Step 1: Fetching S&P 500 tickers...")
-    tickers = get_sp500_tickers()
+    # Step 1: Get universe tickers (driven by MARKET_UNIVERSE env var / config)
+    universe = config.get("universe", "SP500")
+    print(f"Step 1: Fetching {universe} tickers...")
+    tickers = get_universe_tickers(universe)
 
     if not tickers:
         print("❌ Could not retrieve tickers. Exiting.")
         return 1
 
-    print(f"✅ Successfully fetched {len(tickers)} tickers")
+    print(f"✅ Successfully fetched {len(tickers)} {universe} tickers")
     print("Sample tickers:", tickers[:10])
     print()
 

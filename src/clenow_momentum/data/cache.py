@@ -1,10 +1,14 @@
-"""
-Data caching utilities for backtesting.
+"""Data caching utilities for backtesting.
 
-This module provides functionality to cache historical stock data to avoid
-repeated API calls during backtesting iterations.
+Cache keys are universe- and data-kind-aware:
+  Named path:  {SYMBOL}_{data_kind}_{period}  e.g. SP500_universe_1y
+  Custom path: custom_{n}tickers_{period}_{sha256[:16]}
+
+The magic 450<len<550 S&P 500 heuristic and the non-deterministic
+hash(tuple(...)) key are both gone.
 """
 
+import hashlib
 import pickle
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,23 +18,14 @@ from loguru import logger
 
 
 class DataCache:
-    """
-    Simple file-based cache for historical stock data.
+    """Simple file-based cache for historical stock data.
 
     Stores data in pickle format with metadata about cache validity.
     """
 
     def __init__(self, cache_dir: str = "data/cache"):
-        """
-        Initialize data cache.
-
-        Args:
-            cache_dir: Directory to store cached data files
-        """
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-
-        # Cache metadata file
         self.metadata_file = self.cache_dir / "cache_metadata.pkl"
         self.metadata = self._load_metadata()
 
@@ -52,46 +47,56 @@ class DataCache:
         except Exception as e:
             logger.error(f"Failed to save cache metadata: {e}")
 
-    def _get_cache_key(self, tickers: list, period: str) -> str:
-        """
-        Generate cache key from parameters.
+    def _get_cache_key(
+        self,
+        tickers: list,
+        period: str,
+        universe: str | None = None,
+        data_kind: str | None = None,
+    ) -> str:
+        """Generate a deterministic cache key.
+
+        Named-universe path (when universe is given):
+            {UNIVERSE}_{data_kind}_{period}   e.g. SP500_universe_1y
+            data_kind defaults to "universe" when not provided.
+
+        Custom path (no universe):
+            custom_{n}tickers_{period}_{sha256[:16]}
+            SHA-256 is computed over sorted tickers joined by newlines —
+            stable across Python processes regardless of PYTHONHASHSEED.
 
         Args:
-            tickers: List of tickers
-            period: Period string (e.g., '1y', '2y')
+            tickers:   List of ticker symbols (used for custom key only).
+            period:    Period string (e.g. '1y', '2y').
+            universe:  IndexSymbol string ('SP500', 'RUSSELL1000', …) or None.
+            data_kind: Semantic label for the data ('universe', 'benchmark_etf',
+                       'benchmark_index'). Ignored when universe is None.
 
         Returns:
-            Cache key string
+            Cache key string.
         """
-        # For S&P 500, use a simplified key that's more stable
-        # This handles minor variations in ticker count (e.g., 503 vs 504)
-        if 450 < len(tickers) < 550:  # S&P 500 range
-            return f"sp500_universe_{period}"
-        # For custom ticker lists, use hash
-        sorted_tickers = sorted(tickers)
-        ticker_hash = hash(tuple(sorted_tickers))
-        return f"custom_{len(tickers)}tickers_{period}_{ticker_hash}"
+        if universe is not None:
+            kind = data_kind or "universe"
+            return f"{universe.upper()}_{kind}_{period}"
+
+        # Custom / ad-hoc ticker list — deterministic SHA-256
+        digest = hashlib.sha256(
+            "\n".join(sorted(tickers)).encode("utf-8")
+        ).hexdigest()[:16]
+        return f"custom_{len(tickers)}tickers_{period}_{digest}"
 
     def _get_cache_path(self, cache_key: str) -> Path:
         """Get file path for cache key."""
         return self.cache_dir / f"{cache_key}.pkl"
 
     def is_cache_valid(self, cache_key: str, max_age_hours: int = 24) -> bool:
-        """
-        Check if cached data exists and is still valid.
-
-        Args:
-            cache_key: Cache key
-            max_age_hours: Maximum age of cache in hours (default 24)
-
-        Returns:
-            True if cache exists and is valid
-        """
+        """Check if cached data exists and is still valid."""
         if cache_key not in self.metadata:
             return False
 
         cache_info = self.metadata[cache_key]
-        cache_age = datetime.now() - cache_info["timestamp"]
+        now = datetime.now()  # noqa: DTZ005
+        cache_age = now - cache_info["timestamp"]
 
         if cache_age > timedelta(hours=max_age_hours):
             logger.info(f"Cache expired for {cache_key} (age: {cache_age})")
@@ -105,47 +110,20 @@ class DataCache:
         return True
 
     def get(
-        self, tickers: list, period: str, max_age_hours: int = 24
+        self,
+        tickers: list,
+        period: str,
+        max_age_hours: int = 24,
+        universe: str | None = None,
+        data_kind: str | None = None,
     ) -> pd.DataFrame | None:
-        """
-        Get cached data if available and valid.
+        """Get cached data if available and valid."""
+        cache_key = self._get_cache_key(tickers, period, universe, data_kind)
 
-        Args:
-            tickers: List of tickers
-            period: Period string
-            max_age_hours: Maximum cache age in hours
+        if not self.is_cache_valid(cache_key, max_age_hours):
+            return None
 
-        Returns:
-            Cached DataFrame or None if not available
-        """
-        cache_key = self._get_cache_key(tickers, period)
-
-        # First try the exact key
-        if self.is_cache_valid(cache_key, max_age_hours):
-            cache_path = self._get_cache_path(cache_key)
-        else:
-            # For S&P 500, also check for any existing S&P 500 cache with similar ticker count
-            if 450 < len(tickers) < 550:
-                # Look for any S&P 500 cache with the same period
-                found_key = None
-                for key, info in self.metadata.items():
-                    if (
-                        info["period"] == period
-                        and 450 < info["tickers_count"] < 550
-                        and self.is_cache_valid(key, max_age_hours)
-                    ):
-                        found_key = key
-                        logger.info(f"Found existing S&P 500 cache: {key}")
-                        break
-
-                if found_key:
-                    cache_key = found_key
-                    cache_path = self._get_cache_path(cache_key)
-                else:
-                    return None
-            else:
-                return None
-
+        cache_path = self._get_cache_path(cache_key)
         try:
             with open(cache_path, "rb") as f:
                 data = pickle.load(f)
@@ -153,61 +131,41 @@ class DataCache:
             cache_info = self.metadata[cache_key]
             logger.success(
                 f"Loaded cached data: {cache_info['tickers_count']} tickers, "
-                f"{len(data)} days, cached at {cache_info['timestamp'].strftime('%Y-%m-%d %H:%M')}"
+                f"{len(data)} days, cached at "
+                f"{cache_info['timestamp'].strftime('%Y-%m-%d %H:%M')}"
             )
             return data
 
         except Exception as e:
             logger.error(f"Failed to load cached data: {e}")
-            # Remove invalid cache entry
             if cache_key in self.metadata:
                 del self.metadata[cache_key]
                 self._save_metadata()
             return None
 
-    def save(self, data: pd.DataFrame, tickers: list, period: str):
-        """
-        Save data to cache.
-
-        Args:
-            data: DataFrame to cache
-            tickers: List of tickers
-            period: Period string
-        """
-        cache_key = self._get_cache_key(tickers, period)
-
-        # For S&P 500, check if we already have a cache with different key
-        # and remove old entries to avoid duplicates
-        if 450 < len(tickers) < 550:
-            keys_to_remove = []
-            for key, info in self.metadata.items():
-                if (
-                    info["period"] == period
-                    and 450 < info["tickers_count"] < 550
-                    and key != cache_key
-                ):
-                    # Found old S&P 500 cache with same period
-                    old_path = self._get_cache_path(key)
-                    if old_path.exists():
-                        old_path.unlink()
-                        logger.info(f"Removing old cache: {key}")
-                    keys_to_remove.append(key)
-
-            # Clean up metadata
-            for key in keys_to_remove:
-                del self.metadata[key]
-
+    def save(
+        self,
+        data: pd.DataFrame,
+        tickers: list,
+        period: str,
+        universe: str | None = None,
+        data_kind: str | None = None,
+    ):
+        """Save data to cache."""
+        cache_key = self._get_cache_key(tickers, period, universe, data_kind)
         cache_path = self._get_cache_path(cache_key)
 
         try:
             with open(cache_path, "wb") as f:
                 pickle.dump(data, f)
 
-            # Update metadata
+            now = datetime.now()  # noqa: DTZ005
             self.metadata[cache_key] = {
-                "timestamp": datetime.now(),
+                "timestamp": now,
                 "tickers_count": len(tickers),
                 "period": period,
+                "universe": universe,
+                "data_kind": data_kind,
                 "shape": data.shape,
                 "date_range": (
                     (data.index[0], data.index[-1]) if not data.empty else None
@@ -224,28 +182,18 @@ class DataCache:
             logger.error(f"Failed to cache data: {e}")
 
     def clear(self, older_than_hours: int | None = None):
-        """
-        Clear cache files.
-
-        Args:
-            older_than_hours: If specified, only clear files older than this
-        """
+        """Clear cache files."""
         if older_than_hours is None:
-            # Clear all cache files
             for file in self.cache_dir.glob("*.pkl"):
                 if file != self.metadata_file:
                     file.unlink()
                     logger.info(f"Deleted cache file: {file.name}")
-
             self.metadata = {}
             self._save_metadata()
             logger.success("Cleared all cache files")
-
         else:
-            # Clear only old files
-            now = datetime.now()
+            now = datetime.now()  # noqa: DTZ005
             keys_to_remove = []
-
             for cache_key, info in self.metadata.items():
                 age = now - info["timestamp"]
                 if age > timedelta(hours=older_than_hours):
@@ -263,31 +211,25 @@ class DataCache:
                 logger.success(f"Cleared {len(keys_to_remove)} old cache files")
 
     def get_info(self) -> dict:
-        """
-        Get information about cached data.
-
-        Returns:
-            Dictionary with cache information
-        """
+        """Get information about cached data."""
         info = {
             "cache_dir": str(self.cache_dir),
             "total_cached": len(self.metadata),
             "entries": [],
         }
 
+        now = datetime.now()  # noqa: DTZ005
         for cache_key, metadata in self.metadata.items():
             cache_path = self._get_cache_path(cache_key)
             file_size = cache_path.stat().st_size if cache_path.exists() else 0
-
             info["entries"].append(
                 {
                     "key": cache_key,
                     "timestamp": metadata["timestamp"],
-                    "age_hours": (
-                        datetime.now() - metadata["timestamp"]
-                    ).total_seconds()
-                    / 3600,
+                    "age_hours": (now - metadata["timestamp"]).total_seconds() / 3600,
                     "tickers_count": metadata["tickers_count"],
+                    "universe": metadata.get("universe"),
+                    "data_kind": metadata.get("data_kind"),
                     "shape": metadata["shape"],
                     "file_size_mb": file_size / (1024 * 1024),
                 }

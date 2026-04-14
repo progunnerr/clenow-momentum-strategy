@@ -60,23 +60,26 @@ class MarketBreadthAnalyzer:
         ma_period: int = 200,
         tickers: list[str] | None = None,
         stock_data: pd.DataFrame | None = None,
+        universe: str = "SP500",
     ) -> BreadthMetrics:
         """Calculate market breadth - percentage of stocks above their moving average.
 
         Args:
-            ma_period: Moving average period (default 200)
-            tickers: List of tickers (if None, will fetch S&P 500)
-            stock_data: Pre-fetched stock data (optional, for efficiency)
+            ma_period:  Moving average period (default 200).
+            tickers:    List of tickers (if None, fetched from the universe).
+            stock_data: Pre-fetched stock data (optional, for efficiency).
+            universe:   IndexSymbol of the active universe (default "SP500").
+                        Pass config["universe"] to match the active trading universe.
 
         Returns:
-            BreadthMetrics with breadth statistics
+            BreadthMetrics with breadth statistics.
         """
         logger.info(f"Calculating market breadth (% of stocks above {ma_period}-day MA)...")
 
         try:
             # Get tickers if not provided
             if tickers is None:
-                tickers = self._get_tickers()
+                tickers = self._get_tickers(universe=universe)
                 if not tickers:
                     return BreadthMetrics(
                         breadth_pct=0.0,
@@ -138,19 +141,33 @@ class MarketBreadthAnalyzer:
                 error=str(e),
             )
 
-    def _get_tickers(self) -> list[str]:
-        """Get S&P 500 tickers for breadth analysis.
+    def _get_tickers(self, universe: str = "SP500") -> list[str]:
+        """Get universe tickers for breadth analysis.
+
+        Args:
+            universe: IndexSymbol of the active universe (default "SP500").
+                      Pass config["universe"] to match the active trading universe.
 
         Returns:
-            List of S&P 500 ticker symbols
+            List of ticker symbols for the specified universe.
         """
         try:
-            tickers = self.ticker_source.get_sp500_tickers()
-            logger.debug(f"Retrieved {len(tickers)} tickers for breadth analysis")
+            tickers = self.ticker_source.get_tickers_for_index(universe)  # type: ignore[arg-type]
+            logger.debug(f"Retrieved {len(tickers)} {universe} tickers for breadth analysis")
             return tickers
         except DataSourceError as e:
-            logger.error(f"Error fetching S&P 500 tickers: {e}")
+            logger.error(f"Error fetching {universe} tickers: {e}")
             return []
+        except NotImplementedError:
+            # Fall back to SP500 if the requested universe isn't supported by this source
+            logger.warning(
+                f"Universe '{universe}' not supported by ticker source; falling back to SP500"
+            )
+            try:
+                return self.ticker_source.get_sp500_tickers()
+            except DataSourceError as e2:
+                logger.error(f"Error fetching SP500 fallback tickers: {e2}")
+                return []
 
     def _get_stock_data(self, tickers: list[str]) -> pd.DataFrame | None:
         """Get stock data for breadth analysis.

@@ -9,12 +9,9 @@ Co-located with data module for easier navigation and maintenance.
 
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import pandas as pd
-
-if TYPE_CHECKING:
-    pass
 
 
 class MarketDataSource(ABC):
@@ -110,22 +107,24 @@ class MarketDataSource(ABC):
         except Exception:
             return None
 
-    def get_market_data(self, period: str = "1y") -> pd.DataFrame:
-        """Get market benchmark data (SPY for S&P 500).
-        
-        Convenience method that wraps get_index_data for SPY.
-        
+    def get_market_data(self, period: str = "1y", benchmark_ticker: str = "SPY") -> pd.DataFrame:
+        """Get market benchmark data for regime detection.
+
         Args:
             period: Period string
-            
+            benchmark_ticker: ETF or index symbol to use as benchmark (default "SPY").
+                Override with the universe's benchmark_etf when switching universes.
+
         Returns:
-            DataFrame with SPY OHLCV data
+            DataFrame with benchmark OHLCV data
         """
-        return self.get_index_data("SPY", period=period)
+        return self.get_index_data(benchmark_ticker, period=period)
 
 
-# Supported market universe indices
-IndexSymbol = Literal["SP500", "NASDAQ100", "DOW30", "RUSSELL2000"]
+# Supported market universe indices.
+# NOTE: A symbol appearing here does not guarantee runtime availability —
+# it must also have a registered UniverseSpec in data/universes.py.
+IndexSymbol = Literal["SP500", "NASDAQ100", "DOW30", "RUSSELL1000", "RUSSELL2000"]
 
 
 class TickerSource(ABC):
