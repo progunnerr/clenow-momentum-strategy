@@ -33,7 +33,7 @@ def load_config() -> dict:
         "universe": os.getenv("MARKET_UNIVERSE", "SP500").upper(),
         # Strategy Settings
         "strategy_allocation": float(os.getenv("STRATEGY_ALLOCATION", "100000")),
-        "risk_per_trade": float(os.getenv("RISK_PER_TRADE", "0.001")),
+        "risk_per_trade": float(os.getenv("RISK_PER_TRADE_PCT", "0.1")) / 100,
         # Portfolio Construction
         "max_positions": int(os.getenv("MAX_POSITIONS", "20")),
         "min_position_value": float(os.getenv("MIN_POSITION_VALUE", "5000")),

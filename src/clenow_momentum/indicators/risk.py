@@ -169,7 +169,7 @@ def calculate_position_size(
 
     Args:
         account_value: Total account value
-        risk_per_trade: Target daily impact as percentage (e.g., 0.001 for 0.1%)
+        risk_per_trade: Target daily impact as decimal (e.g., 0.001 for 0.1%)
         stock_price: Current stock price
         atr: Stock's Average True Range (daily volatility)
         max_position_pct: Maximum position as percentage of account (default 0.05 = 5%)
