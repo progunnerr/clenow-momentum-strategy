@@ -28,6 +28,8 @@ class UniverseSpec:
         expected_row_range:       Plausible (min, max) row count for the constituents table
         benchmark_etf:            Tradable ETF used for regime detection ("SPY", "IWB")
         benchmark_index:          Index quote symbol for analytics ("^GSPC", "^RUI")
+        exchange_suffix:          Suffix appended to raw tickers for yfinance (e.g. ".TO"
+                                  for TSX; empty string for US exchanges)
     """
 
     symbol: IndexSymbol
@@ -40,6 +42,7 @@ class UniverseSpec:
     benchmark_index: str
     company_column_candidates: tuple[str, ...] = ("Security", "Company", "Company Name", "Name")
     sector_column_candidates: tuple[str, ...] = ("GICS Sector", "Sector")
+    exchange_suffix: str = ""  # appended to raw tickers before yfinance lookup (e.g. ".TO")
 
 
 UNIVERSES: dict[str, UniverseSpec] = {
@@ -62,6 +65,19 @@ UNIVERSES: dict[str, UniverseSpec] = {
         expected_row_range=(900, 1100),
         benchmark_etf="IWB",
         benchmark_index="^RUI",
+    ),
+    "TSX": UniverseSpec(
+        symbol="TSX",
+        display_name="S&P/TSX Composite",
+        wiki_url="https://en.wikipedia.org/wiki/S%26P/TSX_Composite_Index",
+        wiki_table_id=None,
+        symbol_column_candidates=("Ticker",),
+        expected_row_range=(180, 270),
+        benchmark_etf="XIC.TO",   # iShares Core S&P/TSX Capped Composite ETF
+        benchmark_index="^GSPTSE",  # S&P/TSX Composite Index
+        company_column_candidates=("Company", "Company Name", "Security", "Name"),
+        sector_column_candidates=("Sector", "GICS Sector"),
+        exchange_suffix=".TO",
     ),
 }
 

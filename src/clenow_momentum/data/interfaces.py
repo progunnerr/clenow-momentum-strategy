@@ -124,7 +124,7 @@ class MarketDataSource(ABC):
 # Supported market universe indices.
 # NOTE: A symbol appearing here does not guarantee runtime availability —
 # it must also have a registered UniverseSpec in data/universes.py.
-IndexSymbol = Literal["SP500", "NASDAQ100", "DOW30", "RUSSELL1000", "RUSSELL2000"]
+IndexSymbol = Literal["SP500", "NASDAQ100", "DOW30", "RUSSELL1000", "RUSSELL2000", "TSX"]
 
 
 class TickerSource(ABC):

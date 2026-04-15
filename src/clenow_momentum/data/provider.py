@@ -140,6 +140,8 @@ def get_universe_constituents(
         constituents = raw_constituents.copy()
         constituents["source_symbol"] = constituents["source_symbol"].astype(str)
         constituents["ticker"] = constituents["source_symbol"].map(convert_ticker_for_yfinance)
+        if spec.exchange_suffix:
+            constituents["ticker"] = constituents["ticker"] + spec.exchange_suffix
 
         for col in ("company_name", "sector"):
             if col not in constituents.columns:

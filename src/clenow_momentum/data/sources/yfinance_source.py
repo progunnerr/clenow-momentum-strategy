@@ -18,7 +18,17 @@ def convert_ticker_for_yfinance(ticker: str) -> str:
     yfinance uses hyphens instead of dots for certain tickers:
     - BRK.B -> BRK-B
     - BF.B  -> BF-B
+
+    Exchange suffixes remain dot-separated:
+    - SHOP.TO    -> SHOP.TO
+    - BIP.UN.TO  -> BIP-UN.TO
     """
+    exchange_suffixes = (".TO",)
+    for suffix in exchange_suffixes:
+        if ticker.endswith(suffix):
+            base = ticker[: -len(suffix)]
+            return f"{base.replace('.', '-')}{suffix}"
+
     return ticker.replace(".", "-")
 
 def get_tickers_from_spy_holdings(*, yf=None) -> list[str] | None:

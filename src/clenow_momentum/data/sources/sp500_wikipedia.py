@@ -107,9 +107,24 @@ def _select_constituents_table(spec: "UniverseSpec", html: str) -> pd.DataFrame:
     return df
 
 
+def _normalize_col(name: str) -> str:
+    """Strip Wikipedia footnote markers (e.g. ' [9]') and whitespace from a column name."""
+    import re
+    return re.sub(r"\s*\[\d+\]", "", str(name)).strip()
+
+
 def _resolve_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
-    """Return the first matching column name from candidate names."""
-    return next((c for c in candidates if c in df.columns), None)
+    """Return the first actual column name that matches any candidate.
+
+    Matching is done against normalized column names (footnote markers like
+    ' [9]' stripped, whitespace trimmed) so Wikipedia footnotes don't break
+    column resolution.
+
+    Returns the *original* (un-normalized) column name so the caller can
+    safely use it to index into df.
+    """
+    normalized = {_normalize_col(c): c for c in df.columns}
+    return next((normalized[cand] for cand in candidates if cand in normalized), None)
 
 
 def fetch_index_constituents_from_wikipedia(
