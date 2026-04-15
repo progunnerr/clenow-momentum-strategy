@@ -19,18 +19,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Initialize logger configuration
 
-from clenow_momentum.data import get_universe_tickers, get_stock_data
-from clenow_momentum.data.universes import get_universe_spec
+from clenow_momentum.data import get_stock_data, get_universe_tickers
 from clenow_momentum.data.sources.yfinance_adapter import (
     WikipediaTickerAdapter,
     YFinanceMarketDataAdapter,
 )
+from clenow_momentum.data.universes import get_universe_spec
 from clenow_momentum.indicators.filters import apply_all_filters
 from clenow_momentum.indicators.momentum import (
     calculate_momentum_for_universe,
     get_top_momentum_stocks,
 )
-from clenow_momentum.indicators.risk import apply_risk_limits, build_portfolio
+from clenow_momentum.indicators.risk import build_portfolio
 from clenow_momentum.market_analysis import MarketAnalysisFacade
 from clenow_momentum.strategy.rebalancing import (
     create_rebalancing_summary,
@@ -43,7 +43,12 @@ from clenow_momentum.strategy.trading_schedule import (
 )
 from clenow_momentum.trading import get_trading_mode
 from clenow_momentum.trading.portfolio_sync import PortfolioSynchronizer
-from clenow_momentum.utils.config import get_position_sizing_guide, load_config, validate_config, validate_ibkr_config
+from clenow_momentum.utils.config import (
+    get_position_sizing_guide,
+    load_config,
+    validate_config,
+    validate_ibkr_config,
+)
 
 
 def has_error(result: dict) -> bool:
@@ -88,17 +93,11 @@ def print_trading_schedule_status(config):
     calendar_summary = get_trading_calendar_summary(bypass_wednesday)
     can_trade, trade_reason = should_execute_trades(bypass_wednesday=bypass_wednesday)
 
-    print(
-        f"📅 Today: {calendar_summary['current_date']} ({calendar_summary['current_weekday']})"
-    )
+    print(f"📅 Today: {calendar_summary['current_date']} ({calendar_summary['current_weekday']})")
     if bypass_wednesday:
         print("⚠️  TESTING MODE: Wednesday-only restriction bypassed")
-    print(
-        f"🎯 Trading Day: {'✅ Yes' if calendar_summary['is_trading_day'] else '❌ No'}"
-    )
-    print(
-        f"🔄 Rebalancing Day: {'✅ Yes' if calendar_summary['is_rebalancing_day'] else '❌ No'}"
-    )
+    print(f"🎯 Trading Day: {'✅ Yes' if calendar_summary['is_trading_day'] else '❌ No'}")
+    print(f"🔄 Rebalancing Day: {'✅ Yes' if calendar_summary['is_rebalancing_day'] else '❌ No'}")
     print(f"📊 Trading Status: {trade_reason}")
 
     if not can_trade:
@@ -116,7 +115,9 @@ def print_trading_schedule_status(config):
 
 def print_account_sizing(config):
     """Print strategy allocation and position sizing information."""
-    sizing_guide = get_position_sizing_guide(config["strategy_allocation"])
+    sizing_guide = get_position_sizing_guide(
+        config["strategy_allocation"], config["risk_per_trade"]
+    )
     print("STRATEGY ALLOCATION & POSITION SIZING")
     print("-" * 30)
     print(f"💰 Strategy Allocation: ${config['strategy_allocation']:,.0f}")
@@ -159,12 +160,8 @@ def fetch_and_process_data(tickers, config):
     print()
 
     # Calculate momentum scores
-    print(
-        f"Step 3: Calculating momentum scores ({config['momentum_period']}-day period)..."
-    )
-    momentum_df = calculate_momentum_for_universe(
-        stock_data, period=config["momentum_period"]
-    )
+    print(f"Step 3: Calculating momentum scores ({config['momentum_period']}-day period)...")
+    momentum_df = calculate_momentum_for_universe(stock_data, period=config["momentum_period"])
 
     valid_scores = momentum_df.dropna(subset=["momentum_score"])
     print(f"✅ Calculated momentum for {len(valid_scores)} stocks")
@@ -192,10 +189,11 @@ def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
 
         print(f"✅ {len(filtered_stocks)} stocks passed all filters.")
 
-        # For efficiency, select top stocks for portfolio construction before sizing
-        stocks_for_portfolio = filtered_stocks.head(config["max_positions"])
+        # Size all filtered stocks so invalid/zero-share candidates can be
+        # backfilled by the next ranked valid names.
+        stocks_for_portfolio = filtered_stocks
         print(
-            f"📈 Selecting top {len(stocks_for_portfolio)} momentum stocks for portfolio (max_positions: {config['max_positions']})."
+            f"📈 Sizing {len(stocks_for_portfolio)} filtered stocks to fill up to {config['max_positions']} positions."
         )
 
         final_stocks = filtered_stocks  # Keep all filtered stocks for display
@@ -205,9 +203,7 @@ def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
             f"📊 Showing top {config['top_momentum_pct']:.0%} momentum rankings for informational purposes only..."
         )
         # For informational purposes, show the top 20% unfiltered
-        final_stocks = get_top_momentum_stocks(
-            momentum_df, top_pct=config["top_momentum_pct"]
-        )
+        final_stocks = get_top_momentum_stocks(momentum_df, top_pct=config["top_momentum_pct"])
 
     return stocks_for_portfolio, final_stocks
 
@@ -220,6 +216,8 @@ def display_portfolio_table(portfolio_df, config):
     # Prepare portfolio table data
     table_data = []
     for _, row in portfolio_df.iterrows():
+        atr_impact = row.get("actual_atr_impact", row["shares"] * row["atr"])
+        stop_risk = row.get("stop_loss_risk", row.get("actual_risk", 0))
         table_data.append(
             [
                 int(row["portfolio_rank"]),
@@ -230,7 +228,8 @@ def display_portfolio_table(portfolio_df, config):
                 int(row["shares"]),
                 f"${row['investment']:,.0f}",
                 f"{row['position_pct']:.1%}",
-                f"${row['actual_risk']:,.0f}",
+                f"${atr_impact:,.0f}",
+                f"${stop_risk:,.0f}",
             ]
         )
 
@@ -243,7 +242,8 @@ def display_portfolio_table(portfolio_df, config):
         "Shares",
         "Investment",
         "Weight %",
-        "Risk $",
+        "ATR Impact $",
+        "Stop Risk $",
     ]
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
     print()
@@ -252,41 +252,63 @@ def display_portfolio_table(portfolio_df, config):
     total_investment = portfolio_df["investment"].sum()
     total_positions = len(portfolio_df)
     avg_position = total_investment / total_positions
-    total_risk = portfolio_df["actual_risk"].sum()
+    if "actual_atr_impact" in portfolio_df:
+        total_atr_impact = portfolio_df["actual_atr_impact"].sum()
+    else:
+        total_atr_impact = (portfolio_df["shares"] * portfolio_df["atr"]).sum()
+    if "stop_loss_risk" in portfolio_df:
+        total_stop_risk = portfolio_df["stop_loss_risk"].sum()
+    else:
+        total_stop_risk = portfolio_df["actual_risk"].sum()
 
     print("PORTFOLIO SUMMARY")
     print("-" * 50)
     print(f"💰 Strategy Allocation: ${config['strategy_allocation']:,.0f}")
     print(f"📊 Total Positions: {total_positions}")
     print(f"💼 Total Investment: ${total_investment:,.0f}")
-    print(
-        f"💵 Cash Remaining: ${config['strategy_allocation'] - total_investment:,.0f}"
-    )
-    print(
-        f"📈 Capital Utilization: {total_investment / config['strategy_allocation']:.1%}"
-    )
+    print(f"💵 Cash Remaining: ${config['strategy_allocation'] - total_investment:,.0f}")
+    print(f"📈 Capital Utilization: {total_investment / config['strategy_allocation']:.1%}")
     print(f"⚖️  Average Position: ${avg_position:,.0f}")
-    print(f"⚠️  Total Portfolio Risk: ${total_risk:,.0f}")
+    print(f"📊 Total ATR Impact: ${total_atr_impact:,.0f}")
     print(
-        f"🎯 Risk per Trade: {config['risk_per_trade']:.3%} (${config['strategy_allocation'] * config['risk_per_trade']:,.0f})"
+        f"⚠️  Total {config['stop_loss_multiplier']:g}x ATR Stop Exposure: ${total_stop_risk:,.0f}"
     )
-    print("📊 Weighting Method: Risk Parity (Equal Risk Contribution)")
+    print(
+        f"🎯 Target ATR Impact per Position: {config['risk_per_trade']:.3%} (${config['strategy_allocation'] * config['risk_per_trade']:,.0f})"
+    )
+    print(f"📏 Stop Multiplier: {config['stop_loss_multiplier']:g}x ATR")
+    print("📊 Weighting Method: Risk Parity (Equal ATR Impact)")
+    display_dropped_candidates(portfolio_df)
 
 
-def display_stocks_table(
-    final_stocks, config, trading_allowed, valid_scores, market_regime
-):
+def display_dropped_candidates(portfolio_df):
+    """Display candidates dropped during portfolio construction."""
+    drop_reasons = portfolio_df.attrs.get("drop_reasons", [])
+    if not drop_reasons:
+        return
+
+    print()
+    print("DROPPED CANDIDATES")
+    print("-" * 50)
+    table_data = [
+        [
+            item.get("ticker", "N/A"),
+            item.get("stage", "N/A"),
+            item.get("reason", "No reason recorded"),
+        ]
+        for item in drop_reasons
+    ]
+    print(tabulate(table_data, headers=["Ticker", "Stage", "Reason"], tablefmt="grid"))
+
+
+def display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime):
     """Display filtered stocks table without portfolio."""
     table_data = []
     for i, (_, row) in enumerate(final_stocks.iterrows()):
         # Check if we have filter data (MA info)
         if "latest_price" in row and not pd.isna(row["latest_price"]):
             price_val = row["latest_price"]
-            ma_info = (
-                f" (vs MA: {row.get('price_vs_ma', 0):+.1%})"
-                if "price_vs_ma" in row
-                else ""
-            )
+            ma_info = f" (vs MA: {row.get('price_vs_ma', 0):+.1%})" if "price_vs_ma" in row else ""
         else:
             price_val = row.get("current_price", 0)
             ma_info = ""
@@ -322,9 +344,7 @@ def display_stocks_table(
             print(f"🔍 Filter pass rate: {filter_rate:.1f}%")
     else:
         # In the "no trade" case, final_stocks is the top 20%
-        print(
-            f"🎯 Top {config['top_momentum_pct']:.0%} stocks shown: {len(final_stocks)}"
-        )
+        print(f"🎯 Top {config['top_momentum_pct']:.0%} stocks shown: {len(final_stocks)}")
 
     print(f"📈 Average Momentum Score: {final_stocks['momentum_score'].mean():.3f}")
     print(f"📐 Average R-squared: {final_stocks['r_squared'].mean():.3f}")
@@ -387,16 +407,16 @@ def main(force_execution: bool = False):
     market_analysis = MarketAnalysisFacade(
         market_data_source, ticker_source, benchmark_ticker=universe_spec.benchmark_etf
     )
-    
+
     # Check regime using new architecture
     regime = market_analysis.check_regime(period=config["market_regime_period"])
     trading_allowed, regime_reason = market_analysis.should_trade_momentum(
         regime=regime, period=config["market_regime_period"]
     )
-    
+
     # Get detailed market status
     detailed_status = market_analysis.get_detailed_status(period=config["market_regime_period"])
-    
+
     # Calculate additional market metrics using new architecture
     breadth = market_analysis.calculate_breadth(
         period=config["market_regime_period"],
@@ -404,20 +424,22 @@ def main(force_execution: bool = False):
         tickers=tickers,
     )
     momentum_metrics = market_analysis.calculate_absolute_momentum(period_months=12)
-    
+
     # Calculate daily performance and short-term MAs
     daily_perf = market_analysis.calculate_daily_performance()
     short_mas = market_analysis.calculate_short_term_mas()
     ma_position = market_analysis.analyze_ma_position(
         long_term_ma=regime.ma_value, short_term_mas=short_mas
     )
-    
+
     # Convert new dataclasses to old dict format for backward compatibility with display code
     market_regime = {
         "regime": regime.regime,
         "current_price": regime.current_price,
         "ma_value": regime.ma_value,
-        "price_vs_ma": regime.price_vs_ma_pct / 100 if regime.price_vs_ma_pct else None,  # Convert pct to decimal
+        "price_vs_ma": regime.price_vs_ma_pct / 100
+        if regime.price_vs_ma_pct
+        else None,  # Convert pct to decimal
         "trading_allowed": regime.trading_allowed,
     }
     breadth_data = {
@@ -491,9 +513,7 @@ def main(force_execution: bool = False):
             five_emoji = "📈" if five_day > 0 else "📉"
             print(f"{five_emoji} 5-Day Performance: {five_day:+.2f}%")
     else:
-        print(
-            f"⚠️ Could not fetch daily performance: {daily_perf.get('error', 'Unknown error')}"
-        )
+        print(f"⚠️ Could not fetch daily performance: {daily_perf.get('error', 'Unknown error')}")
 
     # Display Short-term Technical Analysis
     if not has_error(ma_analysis):
@@ -508,7 +528,6 @@ def main(force_execution: bool = False):
 
         # Display each MA with distance
         for ma_name, position, distance in ma_analysis.get("ma_positions", []):
-
             # Get MA value
             ma_value = None
             if "10-day" in ma_name and "10_ema" in short_mas:
@@ -528,11 +547,7 @@ def main(force_execution: bool = False):
         struct_emoji = (
             "💪"
             if "Strong Bullish" in structure
-            else (
-                "📈"
-                if "Bullish" in structure
-                else "⚖️" if "Mixed" in structure else "📉"
-            )
+            else ("📈" if "Bullish" in structure else "⚖️" if "Mixed" in structure else "📉")
         )
         print(f"\n{struct_emoji} Market Structure: {structure}")
 
@@ -540,9 +555,7 @@ def main(force_execution: bool = False):
         if ma_analysis.get("mas_aligned"):
             print(f"   ✅ MA stack bullishly aligned ({MA_ALIGNMENT_TARGET})")
         else:
-            print(
-                f"   ⚠️ MA stack not bullishly aligned (target: {MA_ALIGNMENT_TARGET})"
-            )
+            print(f"   ⚠️ MA stack not bullishly aligned (target: {MA_ALIGNMENT_TARGET})")
             if alignment_stack:
                 print(f"   • Current stack: {alignment_stack}")
 
@@ -585,22 +598,14 @@ def main(force_execution: bool = False):
             f"\n📈 Distance from MA Statistics (since {detailed_status.get('crossover_date', 'N/A')}):"
         )
         print(f"   • Current: {detailed_status.get('price_vs_ma_pct', 0):+.2f}%")
-        print(
-            f"   • Maximum: {detailed_status.get('max_distance_from_ma_pct', 0):+.2f}%"
-        )
-        print(
-            f"   • Minimum: {detailed_status.get('min_distance_from_ma_pct', 0):+.2f}%"
-        )
-        print(
-            f"   • Average: {detailed_status.get('avg_distance_from_ma_pct', 0):+.2f}%"
-        )
+        print(f"   • Maximum: {detailed_status.get('max_distance_from_ma_pct', 0):+.2f}%")
+        print(f"   • Minimum: {detailed_status.get('min_distance_from_ma_pct', 0):+.2f}%")
+        print(f"   • Average: {detailed_status.get('avg_distance_from_ma_pct', 0):+.2f}%")
 
         # MA trend
         ma_trend = detailed_status.get("ma_trend", "unknown")
         ma_slope = detailed_status.get("ma_slope_10d", 0)
-        trend_emoji = (
-            "📈" if ma_trend == "rising" else "📉" if ma_trend == "falling" else "➡️"
-        )
+        trend_emoji = "📈" if ma_trend == "rising" else "📉" if ma_trend == "falling" else "➡️"
         print(
             f"\n{trend_emoji} {config['market_regime_period']}MA Trend: {ma_trend.capitalize()} (10-day slope: ${ma_slope:.2f}/day)"
         )
@@ -621,9 +626,7 @@ def main(force_execution: bool = False):
 
     if not has_error(breadth_data):
         breadth_pct = breadth_data.get("breadth_pct", 0)
-        breadth_emoji = (
-            "🟢" if breadth_pct >= 60 else "🟡" if breadth_pct >= 50 else "🔴"
-        )
+        breadth_emoji = "🟢" if breadth_pct >= 60 else "🟡" if breadth_pct >= 50 else "🔴"
 
         ma_period_used = breadth_data.get("ma_period", config["market_regime_period"])
 
@@ -633,9 +636,7 @@ def main(force_execution: bool = False):
         print(
             f"   • Stocks above MA: {breadth_data.get('above_ma', 0)}/{breadth_data.get('total_checked', 0)}"
         )
-        print(
-            f"   • Breadth Strength: {breadth_data.get('breadth_strength', 'Unknown')}"
-        )
+        print(f"   • Breadth Strength: {breadth_data.get('breadth_strength', 'Unknown')}")
         print(
             f"   • Coverage: {breadth_data.get('total_checked', 0)}/{breadth_data.get('sample_size', 0)} stocks with valid data"
         )
@@ -648,9 +649,7 @@ def main(force_execution: bool = False):
         else:
             print("   ❌ Weak breadth - Bear market conditions")
     else:
-        print(
-            f"   ⚠️ Could not calculate breadth: {breadth_data.get('error', 'Unknown error')}"
-        )
+        print(f"   ⚠️ Could not calculate breadth: {breadth_data.get('error', 'Unknown error')}")
 
     # Display Absolute Momentum
     print("\n" + "-" * 40)
@@ -659,14 +658,12 @@ def main(force_execution: bool = False):
 
     if not has_error(momentum_data):
         period_return = momentum_data.get("period_return", 0)
-        momentum_emoji = (
-            "🚀" if period_return > 10 else "📈" if period_return > 0 else "📉"
-        )
+        momentum_emoji = "🚀" if period_return > 10 else "📈" if period_return > 0 else "📉"
 
-        print(f"{momentum_emoji} {universe_spec.display_name} 12-Month Return: {period_return:+.2f}%")
         print(
-            f"   • Momentum Strength: {momentum_data.get('momentum_strength', 'Unknown')}"
+            f"{momentum_emoji} {universe_spec.display_name} 12-Month Return: {period_return:+.2f}%"
         )
+        print(f"   • Momentum Strength: {momentum_data.get('momentum_strength', 'Unknown')}")
 
         # Show multiple timeframe returns if available
         all_returns = momentum_data.get("all_returns", {})
@@ -681,9 +678,7 @@ def main(force_execution: bool = False):
         else:
             print("\n   ❌ Negative absolute momentum - Bear market conditions")
     else:
-        print(
-            f"   ⚠️ Could not calculate momentum: {momentum_data.get('error', 'Unknown error')}"
-        )
+        print(f"   ⚠️ Could not calculate momentum: {momentum_data.get('error', 'Unknown error')}")
 
     # Combined Market Assessment
     print("\n" + "-" * 40)
@@ -712,13 +707,9 @@ def main(force_execution: bool = False):
         total_signals += 1
 
     # Overall assessment
-    signal_strength = (
-        (bullish_signals / total_signals * 100) if total_signals > 0 else 0
-    )
+    signal_strength = (bullish_signals / total_signals * 100) if total_signals > 0 else 0
 
-    print(
-        f"📊 Bullish Signals: {bullish_signals}/{total_signals} ({signal_strength:.0f}%)"
-    )
+    print(f"📊 Bullish Signals: {bullish_signals}/{total_signals} ({signal_strength:.0f}%)")
     print(
         f"   • {universe_spec.benchmark_etf} vs 200MA: {'✅ Above' if market_regime.get('regime') == 'bullish' else '❌ Below'}"
     )
@@ -734,9 +725,7 @@ def main(force_execution: bool = False):
     if signal_strength >= 66:
         print("\n🟢 STRONG BULL MARKET - All systems go for momentum trading")
     elif signal_strength >= 33:
-        print(
-            "\n🟡 MIXED SIGNALS - Trade with caution, consider reduced position sizes"
-        )
+        print("\n🟡 MIXED SIGNALS - Trade with caution, consider reduced position sizes")
     else:
         print("\n🔴 BEAR MARKET CONDITIONS - Consider defensive positioning")
 
@@ -765,16 +754,11 @@ def main(force_execution: bool = False):
             allocation_method="equal_risk",
             stop_loss_multiplier=config["stop_loss_multiplier"],
             max_position_pct=config["max_position_pct"],
+            max_positions=config["max_positions"],
+            min_position_value=config["min_position_value"],
         )
 
         if not portfolio_df.empty:
-            # Apply minimum position value limit. max_positions is already handled.
-            portfolio_df = apply_risk_limits(
-                portfolio_df=portfolio_df,
-                max_positions=None,  # Already sliced to max_positions
-                min_position_value=config["min_position_value"],
-            )
-
             print(f"✅ Portfolio constructed with {len(portfolio_df)} positions")
         else:
             print("❌ Failed to construct portfolio")
@@ -799,9 +783,7 @@ def main(force_execution: bool = False):
         if not portfolio_df.empty:
             display_portfolio_table(portfolio_df, config)
         else:
-            display_stocks_table(
-                final_stocks, config, trading_allowed, valid_scores, market_regime
-            )
+            display_stocks_table(final_stocks, config, trading_allowed, valid_scores, market_regime)
 
     # Step 8: Rebalancing Analysis (if it's a rebalancing day and we have a portfolio)
     rebalancing_orders = []  # Initialize for IBKR integration
@@ -815,9 +797,7 @@ def main(force_execution: bool = False):
 
         from pathlib import Path
 
-        portfolio_file = Path(
-            config.get("portfolio_state_file", "data/portfolio_state.json")
-        )
+        portfolio_file = Path(config.get("portfolio_state_file", "data/portfolio_state.json"))
 
         # Determine portfolio source based on IBKR configuration
         if config.get("enable_ibkr_trading", False):
@@ -830,9 +810,7 @@ def main(force_execution: bool = False):
 
                 # Validate configuration first
                 ibkr_config_issues = validate_ibkr_config(config)
-                critical_issues = [
-                    issue for issue in ibkr_config_issues if "❌" in issue
-                ]
+                critical_issues = [issue for issue in ibkr_config_issues if "❌" in issue]
 
                 if critical_issues:
                     print("❌ Cannot sync with IBKR due to configuration issues:")
@@ -847,7 +825,9 @@ def main(force_execution: bool = False):
                         synchronizer = PortfolioSynchronizer(config)
                         current_portfolio = synchronizer.sync_with_ibkr()
 
-                        print(f"✅ Portfolio synced: {current_portfolio.num_positions} positions, ${current_portfolio.cash:,.0f} cash")
+                        print(
+                            f"✅ Portfolio synced: {current_portfolio.num_positions} positions, ${current_portfolio.cash:,.0f} cash"
+                        )
 
                     except Exception as e:
                         print(f"❌ Failed to sync with IBKR: {e}")
@@ -857,9 +837,7 @@ def main(force_execution: bool = False):
                         print("⚠️  IBKR sync failed - cannot proceed with rebalancing")
                         print("Please check your IBKR connection and try again.")
                         # Don't use JSON fallback when IBKR is enabled but fails
-                        portfolio_df = (
-                            pd.DataFrame()
-                        )  # Clear portfolio to prevent trading
+                        portfolio_df = pd.DataFrame()  # Clear portfolio to prevent trading
 
             except ImportError as e:
                 print(f"❌ IBKR modules not available: {e}")
@@ -908,12 +886,8 @@ def main(force_execution: bool = False):
                 print(f"Portfolio Turnover: {summary['turnover_pct']:.1f}%")
                 print()
                 print("Orders to Execute:")
-                print(
-                    f"  - Sells: {summary['num_sells']} (${summary['total_sell_value']:,.0f})"
-                )
-                print(
-                    f"  - Buys: {summary['num_buys']} (${summary['total_buy_value']:,.0f})"
-                )
+                print(f"  - Sells: {summary['num_sells']} (${summary['total_sell_value']:,.0f})")
+                print(f"  - Buys: {summary['num_buys']} (${summary['total_buy_value']:,.0f})")
                 print()
                 print(
                     f"Positions to Add: {', '.join(summary['positions_to_add']) if summary['positions_to_add'] else 'None'}"
@@ -932,12 +906,8 @@ def main(force_execution: bool = False):
 
                 order_data = []
                 # Show all SELL orders first
-                sell_orders = [
-                    o for o in rebalancing_orders if o.order_type.value == "SELL"
-                ]
-                buy_orders = [
-                    o for o in rebalancing_orders if o.order_type.value == "BUY"
-                ]
+                sell_orders = [o for o in rebalancing_orders if o.order_type.value == "SELL"]
+                buy_orders = [o for o in rebalancing_orders if o.order_type.value == "BUY"]
 
                 print(f"\n📉 SELL ORDERS ({len(sell_orders)} total):")
                 for order in sell_orders:
@@ -948,11 +918,7 @@ def main(force_execution: bool = False):
                             order.shares,
                             f"${order.current_price:.2f}",
                             f"${order.order_value:,.0f}",
-                            (
-                                order.reason[:40] + "..."
-                                if len(order.reason) > 40
-                                else order.reason
-                            ),
+                            (order.reason[:40] + "..." if len(order.reason) > 40 else order.reason),
                         ]
                     )
 
@@ -971,11 +937,7 @@ def main(force_execution: bool = False):
                             order.shares,
                             f"${order.current_price:.2f}",
                             f"${order.order_value:,.0f}",
-                            (
-                                order.reason[:40] + "..."
-                                if len(order.reason) > 40
-                                else order.reason
-                            ),
+                            (order.reason[:40] + "..." if len(order.reason) > 40 else order.reason),
                         ]
                     )
 
@@ -985,16 +947,10 @@ def main(force_execution: bool = False):
 
                 # Add execution note
                 print("\n💡 EXECUTION NOTE:")
-                print(
-                    "Execute SELL orders first to free up capital, then execute BUY orders."
-                )
-                print(
-                    "Some BUY orders may not be shown due to insufficient cash simulation."
-                )
+                print("Execute SELL orders first to free up capital, then execute BUY orders.")
+                print("Some BUY orders may not be shown due to insufficient cash simulation.")
             else:
-                print(
-                    "✅ No rebalancing needed - portfolio is already aligned with targets"
-                )
+                print("✅ No rebalancing needed - portfolio is already aligned with targets")
         else:
             # Empty portfolio - initial construction
             print("📊 Empty portfolio detected - initial portfolio construction")
@@ -1009,9 +965,7 @@ def main(force_execution: bool = False):
             if current_portfolio.cash < 1000:
                 # If no cash, use strategy allocation as starting cash
                 current_portfolio.cash = config["strategy_allocation"]
-                print(
-                    f"💵 Using strategy allocation: ${config['strategy_allocation']:,.0f}"
-                )
+                print(f"💵 Using strategy allocation: ${config['strategy_allocation']:,.0f}")
 
             # Generate orders (will be all BUY orders since no current positions)
             rebalancing_orders = generate_rebalancing_orders(
@@ -1032,9 +986,7 @@ def main(force_execution: bool = False):
                 print("-" * 50)
                 print(f"Number of positions: {len(rebalancing_orders)}")
                 print(f"Total investment: ${total_investment:,.0f}")
-                print(
-                    f"Cash reserve: ${current_portfolio.cash - total_investment:,.0f}"
-                )
+                print(f"Cash reserve: ${current_portfolio.cash - total_investment:,.0f}")
 
                 # Show the orders
                 print()
@@ -1059,9 +1011,7 @@ def main(force_execution: bool = False):
 
     elif calendar_summary["is_rebalancing_day"] and portfolio_df.empty:
         print()
-        print(
-            "⚠️  Today is a rebalancing day but no valid portfolio could be constructed"
-        )
+        print("⚠️  Today is a rebalancing day but no valid portfolio could be constructed")
 
     # Step 9: IBKR Live Trading Execution (if enabled and conditions met)
     if (
@@ -1122,19 +1072,13 @@ def main(force_execution: bool = False):
                     print("\n🎯 TRADING EXECUTION RESULTS")
                     print("-" * 40)
                     print(f"Status: {execution_results.get('status', 'Unknown')}")
-                    print(
-                        f"Orders submitted: {execution_results.get('orders_submitted', 0)}"
-                    )
-                    print(
-                        f"Orders executed: {execution_results.get('orders_executed', 0)}"
-                    )
+                    print(f"Orders submitted: {execution_results.get('orders_submitted', 0)}")
+                    print(f"Orders executed: {execution_results.get('orders_executed', 0)}")
                     print(f"Orders failed: {execution_results.get('orders_failed', 0)}")
                     print(
                         f"Total value traded: ${execution_results.get('total_value_traded', 0):,.2f}"
                     )
-                    print(
-                        f"Total commission: ${execution_results.get('total_commission', 0):,.2f}"
-                    )
+                    print(f"Total commission: ${execution_results.get('total_commission', 0):,.2f}")
                     print(
                         f"Execution time: {execution_results.get('execution_duration_minutes', 0):.1f} minutes"
                     )
@@ -1145,9 +1089,7 @@ def main(force_execution: bool = False):
                         )
 
                     if execution_results.get("post_trade_alerts", 0) > 0:
-                        print(
-                            f"🚨 Post-trade alerts: {execution_results['post_trade_alerts']}"
-                        )
+                        print(f"🚨 Post-trade alerts: {execution_results['post_trade_alerts']}")
 
                     if execution_results.get("status") == "completed_successfully":
                         print("✅ Live trading execution completed successfully!")
@@ -1186,9 +1128,7 @@ def main(force_execution: bool = False):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Run Clenow momentum strategy analysis"
-    )
+    parser = argparse.ArgumentParser(description="Run Clenow momentum strategy analysis")
     parser.add_argument(
         "--force",
         action="store_true",

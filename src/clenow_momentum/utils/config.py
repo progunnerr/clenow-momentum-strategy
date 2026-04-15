@@ -28,12 +28,14 @@ def load_config() -> dict:
     else:
         logger.warning(f".env file not found at {env_file}, using defaults")
 
+    risk_per_trade_pct = os.getenv("RISK_PER_TRADE", os.getenv("RISK_PER_TRADE_PCT", "0.1"))
+
     config = {
         # Universe selection (controls both constituents and benchmark)
         "universe": os.getenv("MARKET_UNIVERSE", "SP500").upper(),
         # Strategy Settings
         "strategy_allocation": float(os.getenv("STRATEGY_ALLOCATION", "100000")),
-        "risk_per_trade": float(os.getenv("RISK_PER_TRADE_PCT", "0.1")) / 100,
+        "risk_per_trade": float(risk_per_trade_pct) / 100,
         # Portfolio Construction
         "max_positions": int(os.getenv("MAX_POSITIONS", "20")),
         "min_position_value": float(os.getenv("MIN_POSITION_VALUE", "5000")),
@@ -78,6 +80,7 @@ def load_config() -> dict:
     # Validate universe against the runtime registry (lazy import avoids circular deps)
     try:
         from ..data.universes import get_universe_spec
+
         get_universe_spec(config["universe"])
     except ImportError:
         pass  # tolerate missing registry during early bootstrap
@@ -94,7 +97,7 @@ def load_config() -> dict:
     return config
 
 
-def get_position_sizing_guide(strategy_allocation: float) -> dict:
+def get_position_sizing_guide(strategy_allocation: float, risk_per_trade: float = 0.001) -> dict:
     """
     Provide position sizing guidance based on strategy allocation.
 
@@ -117,7 +120,7 @@ def get_position_sizing_guide(strategy_allocation: float) -> dict:
         recommended_positions = 20
         risk_level = "Fully Diversified"
 
-    risk_per_trade_dollars = strategy_allocation * 0.001  # 0.1%
+    risk_per_trade_dollars = strategy_allocation * risk_per_trade
 
     return {
         "strategy_allocation": strategy_allocation,
@@ -126,7 +129,9 @@ def get_position_sizing_guide(strategy_allocation: float) -> dict:
         "risk_per_trade_dollars": risk_per_trade_dollars,
         "min_position_for_diversification": strategy_allocation / recommended_positions,
         "guidance": {
-            "risk_per_trade": f"${risk_per_trade_dollars:.0f} (0.1% of strategy allocation)",
+            "risk_per_trade": (
+                f"${risk_per_trade_dollars:.0f} ({risk_per_trade:.3%} of strategy allocation)"
+            ),
             "position_sizing": f"Target {recommended_positions} positions for optimal diversification",
             "min_stock_price": f"Can trade stocks up to ${risk_per_trade_dollars * 10:.0f} effectively",
         },
@@ -157,7 +162,9 @@ def validate_config(config: dict) -> list:
 
     # Position count checks
     if config["max_positions"] > config["strategy_allocation"] / config["min_position_value"]:
-        warnings.append("⚠️  Too many positions for strategy allocation given minimum position value")
+        warnings.append(
+            "⚠️  Too many positions for strategy allocation given minimum position value"
+        )
 
     # Diversification checks
     if config["max_positions"] < 10:
@@ -185,7 +192,7 @@ def validate_ibkr_config(config: dict = None) -> list[str]:
 
     # Check required settings
     ibkr_config = config.get("ibkr", {})
-    
+
     if not ibkr_config.get("host"):
         issues.append("❌ IBKR_HOST is required")
 
@@ -196,10 +203,7 @@ def validate_ibkr_config(config: dict = None) -> list[str]:
     port = ibkr_config.get("port", 0)
     valid_ports = [7496, 7497, 4001, 4002]  # Standard TWS/Gateway ports
     if port and port not in valid_ports:
-        issues.append(
-            f"⚠️ IBKR_PORT {port} is not a standard port "
-            f"(expected: {valid_ports})"
-        )
+        issues.append(f"⚠️ IBKR_PORT {port} is not a standard port (expected: {valid_ports})")
 
     # Check client ID
     if ibkr_config.get("client_id", 0) < 1:
@@ -212,9 +216,9 @@ def validate_ibkr_config(config: dict = None) -> list[str]:
     # Trading mode detection and warnings
     if port:
         from ..data.sources.ibkr_client import get_trading_mode_from_port
-        
+
         trading_mode = get_trading_mode_from_port(port)
-        
+
         if trading_mode == "live":
             issues.append("🚨 LIVE TRADING MODE DETECTED - Real money will be used!")
             if port == 7496:

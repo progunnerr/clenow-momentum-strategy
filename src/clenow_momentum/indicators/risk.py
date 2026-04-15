@@ -108,6 +108,16 @@ def calculate_atr_for_universe(stock_data: pd.DataFrame, period: int = 14) -> pd
                     failed_count += 1
                     continue
 
+                # Some constituents have leading empty rows in a one-year
+                # download window. Calculate ATR on valid OHLC rows only.
+                ticker_data = ticker_data[required_cols].dropna()
+                if len(ticker_data) < period:
+                    logger.debug(
+                        f"Insufficient valid OHLC data for {ticker}: {len(ticker_data)} < {period}"
+                    )
+                    failed_count += 1
+                    continue
+
                 # Calculate ATR
                 atr_series = calculate_atr(ticker_data, period)
                 current_atr = atr_series.iloc[-1]
@@ -157,11 +167,11 @@ def calculate_position_size(
     Calculate position size based on Clenow's risk management rules.
 
     Using Clenow's formula: Shares = (Account Value × Risk Factor) / ATR
-    
+
     This targets a specific daily portfolio impact per position based on the stock's
     average daily volatility (ATR). The risk_per_trade parameter sets the target
     daily impact as a percentage of account value.
-    
+
     The position size is determined by:
     1. Target daily impact (risk_per_trade × account_value)
     2. Stock's average daily volatility (ATR)
@@ -209,8 +219,10 @@ def calculate_position_size(
     # Calculate actual investment amount
     investment_amount = shares * stock_price
 
-    # Calculate actual risk (based on stop loss distance)
-    actual_risk = shares * stop_loss_distance
+    # Calculate realized ATR impact after whole-share rounding, and the
+    # wider stop exposure implied by the configured ATR stop multiplier.
+    actual_atr_impact = shares * atr
+    stop_loss_risk = shares * stop_loss_distance
 
     # Calculate position as percentage of account
     position_pct = investment_amount / account_value
@@ -222,9 +234,14 @@ def calculate_position_size(
         "shares": shares,
         "investment_amount": investment_amount,
         "position_pct": position_pct,
-        "target_risk": risk_amount,  # Actually: target daily portfolio impact
-        "actual_risk": actual_risk,  # Actually: potential stop loss risk
-        "risk_utilization": actual_risk / risk_amount if risk_amount > 0 else 0,
+        "target_atr_impact": risk_amount,
+        "actual_atr_impact": actual_atr_impact,
+        "stop_loss_risk": stop_loss_risk,
+        # Backward-compatible aliases used by trading/rebalancing code.
+        "target_risk": risk_amount,
+        "actual_risk": stop_loss_risk,
+        "risk_utilization": actual_atr_impact / risk_amount if risk_amount > 0 else 0,
+        "stop_loss_risk_utilization": stop_loss_risk / risk_amount if risk_amount > 0 else 0,
         "limited_by": "position_limit" if limited_by_position else "risk_limit",
         "stop_loss_price": stop_loss_price,
         "stop_loss_distance": stop_loss_distance,
@@ -270,7 +287,9 @@ def calculate_equal_dollar_position(
     # Calculate stop loss and risk
     stop_loss_distance = row["atr"] * stop_loss_multiplier
     stop_loss_price = current_price - stop_loss_distance
-    actual_risk = shares * stop_loss_distance
+    actual_atr_impact = shares * row["atr"]
+    stop_loss_risk = shares * stop_loss_distance
+    target_atr_impact = position_value * risk_per_trade
 
     result = {
         "ticker": ticker,
@@ -280,8 +299,11 @@ def calculate_equal_dollar_position(
         "shares": shares,
         "investment": investment,
         "position_pct": position_pct,
-        "target_risk": position_value * risk_per_trade,
-        "actual_risk": actual_risk,
+        "target_atr_impact": target_atr_impact,
+        "actual_atr_impact": actual_atr_impact,
+        "stop_loss_risk": stop_loss_risk,
+        "target_risk": target_atr_impact,
+        "actual_risk": stop_loss_risk,
         "risk_utilization": 1.0,
         "limited_by": "equal_dollar",
         "stop_loss_price": stop_loss_price,
@@ -339,9 +361,13 @@ def calculate_risk_based_position(
             "shares": position["shares"],
             "investment": position["investment_amount"],
             "position_pct": position["position_pct"],
+            "target_atr_impact": position["target_atr_impact"],
+            "actual_atr_impact": position["actual_atr_impact"],
+            "stop_loss_risk": position["stop_loss_risk"],
             "target_risk": position["target_risk"],
             "actual_risk": position["actual_risk"],
             "risk_utilization": position["risk_utilization"],
+            "stop_loss_risk_utilization": position["stop_loss_risk_utilization"],
             "limited_by": position["limited_by"],
             "stop_loss_price": position["stop_loss_price"],
             "stop_loss_distance": position["stop_loss_distance"],
@@ -368,6 +394,8 @@ def build_portfolio(
     allocation_method: str = "equal_risk",
     stop_loss_multiplier: float = 3.0,
     max_position_pct: float = 0.05,
+    max_positions: int | None = None,
+    min_position_value: float | None = None,
 ) -> pd.DataFrame:
     """
     Build complete portfolio with position sizing for all filtered stocks.
@@ -381,6 +409,8 @@ def build_portfolio(
         allocation_method: "equal_risk" or "equal_dollar"
         stop_loss_multiplier: ATR multiplier for stop loss (default 3.0 = 3x ATR per Clenow)
         max_position_pct: Maximum position size as percentage of account (default 0.05 = 5%)
+        max_positions: Optional maximum number of valid positions to keep after sizing
+        min_position_value: Optional minimum investment required after sizing
 
     Returns:
         DataFrame with complete portfolio including position sizes
@@ -393,6 +423,8 @@ def build_portfolio(
     if filtered_stocks.empty:
         logger.warning("No stocks to build portfolio with")
         return pd.DataFrame()
+
+    drop_reasons = []
 
     if allocation_method == "equal_risk":
         logger.info(f"Risk per trade: {risk_per_trade:.3%}")
@@ -411,9 +443,20 @@ def build_portfolio(
     # Merge filtered stocks with ATR data
     portfolio_df = filtered_stocks.merge(atr_df[["ticker", "atr"]], on="ticker", how="inner").copy()
 
+    portfolio_tickers = set(portfolio_df["ticker"])
+    missing_atr_tickers = [
+        ticker for ticker in filtered_stocks["ticker"].tolist() if ticker not in portfolio_tickers
+    ]
+    for ticker in missing_atr_tickers:
+        reason = f"ATR unavailable after {atr_period}-day calculation"
+        drop_reasons.append({"ticker": ticker, "stage": "ATR", "reason": reason})
+        logger.info(f"Dropping {ticker}: {reason}")
+
     if portfolio_df.empty:
         logger.warning("No stocks remained after ATR merge")
-        return pd.DataFrame()
+        empty = pd.DataFrame()
+        empty.attrs["drop_reasons"] = drop_reasons
+        return empty
 
     # Calculate position sizes based on allocation method
     portfolio_results = []
@@ -443,51 +486,77 @@ def build_portfolio(
 
     if portfolio_df.empty:
         logger.warning("No valid positions created")
-        return pd.DataFrame()
+        empty = pd.DataFrame()
+        empty.attrs["drop_reasons"] = drop_reasons
+        return empty
 
     # The incoming data is already sorted by momentum score. Preserve this ranking.
     portfolio_df = portfolio_df.reset_index(drop=True)
-    
-    # Apply cash constraint: only include positions we can afford
-    # Iterate through positions in momentum rank order (they're already sorted)
-    cash_constrained_positions = []
+
+    # Apply validity and cash constraints in momentum rank order. If a higher
+    # ranked candidate is dropped, lower ranked candidates can backfill until
+    # max_positions valid holdings have been selected.
+    selected_positions = []
     cumulative_investment = 0.0
-    positions_excluded = 0
-    
-    for idx, row in portfolio_df.iterrows():
+
+    for _, row in portfolio_df.iterrows():
+        ticker = row["ticker"]
         position_cost = row["investment"]
-        
-        # Check if we can afford this position
-        if cumulative_investment + position_cost <= account_value:
-            cash_constrained_positions.append(row)
-            cumulative_investment += position_cost
-        else:
-            positions_excluded += 1
-            logger.info(
-                f"Cash constraint: Excluding {row['ticker']} "
-                f"(would need ${position_cost:,.0f}, only ${account_value - cumulative_investment:,.0f} remaining)"
+
+        if min_position_value is not None and position_cost < min_position_value:
+            if row["shares"] <= 0:
+                reason = (
+                    f"sized to 0 shares because target ATR impact "
+                    f"${row['target_atr_impact']:,.0f} is below ATR ${row['atr']:,.2f}"
+                )
+            else:
+                reason = (
+                    f"investment ${position_cost:,.0f} is below minimum position "
+                    f"value ${min_position_value:,.0f}"
+                )
+            drop_reasons.append({"ticker": ticker, "stage": "position_size", "reason": reason})
+            logger.info(f"Dropping {ticker}: {reason}")
+            continue
+
+        # Check if we can afford this position.
+        if cumulative_investment + position_cost > account_value:
+            reason = (
+                f"insufficient cash for ${position_cost:,.0f} position; "
+                f"${account_value - cumulative_investment:,.0f} remaining"
             )
-    
-    # Replace portfolio with cash-constrained version
-    if cash_constrained_positions:
-        portfolio_df = pd.DataFrame(cash_constrained_positions)
+            drop_reasons.append({"ticker": ticker, "stage": "cash", "reason": reason})
+            logger.info(
+                f"Cash constraint: Excluding {ticker} "
+                f"(would need ${position_cost:,.0f}, "
+                f"only ${account_value - cumulative_investment:,.0f} remaining)"
+            )
+            continue
+
+        selected_positions.append(row)
+        cumulative_investment += position_cost
+
+        if max_positions is not None and len(selected_positions) >= max_positions:
+            break
+
+    # Replace portfolio with constrained version.
+    if selected_positions:
+        portfolio_df = pd.DataFrame(selected_positions)
         portfolio_df = portfolio_df.reset_index(drop=True)
-        
-        if positions_excluded > 0:
-            logger.info(
-                f"Cash constraint applied: {positions_excluded} positions excluded due to insufficient funds"
-            )
     else:
-        logger.warning("No positions fit within cash constraint")
-        return pd.DataFrame()
+        logger.warning("No positions fit within position and cash constraints")
+        empty = pd.DataFrame()
+        empty.attrs["drop_reasons"] = drop_reasons
+        return empty
 
     # Add portfolio statistics
     portfolio_df["portfolio_rank"] = range(1, len(portfolio_df) + 1)
+    portfolio_df.attrs["drop_reasons"] = drop_reasons
 
     # Calculate portfolio statistics
     total_positions = len(portfolio_df)
     total_investment = portfolio_df["investment"].sum()
-    total_risk = portfolio_df["actual_risk"].sum()
+    total_atr_impact = portfolio_df["actual_atr_impact"].sum()
+    total_stop_loss_risk = portfolio_df["stop_loss_risk"].sum()
     cash_remaining = account_value - total_investment
     capital_utilization = total_investment / account_value
     avg_position_size = total_investment / total_positions if total_positions > 0 else 0
@@ -498,7 +567,10 @@ def build_portfolio(
     logger.info(f"  Cash Remaining: ${cash_remaining:,.0f}")
     logger.info(f"  Capital Utilization: {capital_utilization:.1%}")
     logger.info(f"  Average Position Size: ${avg_position_size:,.0f}")
-    logger.info(f"  Total Portfolio Risk: ${total_risk:,.0f}")
+    logger.info(f"  Total ATR Impact: ${total_atr_impact:,.0f}")
+    logger.info(
+        f"  Total {stop_loss_multiplier:g}x ATR Stop Exposure: ${total_stop_loss_risk:,.0f}"
+    )
 
     return portfolio_df
 
@@ -523,10 +595,27 @@ def apply_risk_limits(
     if portfolio_df.empty:
         return portfolio_df
 
+    drop_reasons = list(portfolio_df.attrs.get("drop_reasons", []))
     original_count = len(portfolio_df)
 
     # Filter by minimum position value (skip for equal dollar allocation)
     if not skip_minimum_filter:
+        below_minimum = portfolio_df[portfolio_df["investment"] < min_position_value]
+        for _, row in below_minimum.iterrows():
+            if row.get("shares", 0) <= 0 and "target_atr_impact" in row:
+                reason = (
+                    f"sized to 0 shares because target ATR impact "
+                    f"${row['target_atr_impact']:,.0f} is below ATR ${row['atr']:,.2f}"
+                )
+            else:
+                reason = (
+                    f"investment ${row['investment']:,.0f} is below minimum "
+                    f"position value ${min_position_value:,.0f}"
+                )
+            drop_reasons.append(
+                {"ticker": row["ticker"], "stage": "position_size", "reason": reason}
+            )
+
         portfolio_df = portfolio_df[portfolio_df["investment"] >= min_position_value].copy()
         logger.info(f"Minimum position filter applied: ${min_position_value:,.0f}")
     else:
@@ -534,10 +623,20 @@ def apply_risk_limits(
 
     # Limit to maximum number of positions (keep highest momentum stocks)
     if max_positions is not None:
+        excluded_by_rank = portfolio_df.iloc[max_positions:]
+        for _, row in excluded_by_rank.iterrows():
+            drop_reasons.append(
+                {
+                    "ticker": row["ticker"],
+                    "stage": "max_positions",
+                    "reason": f"below top {max_positions} after risk filters",
+                }
+            )
         portfolio_df = portfolio_df.head(max_positions).copy()
 
     # Re-rank after filtering
     portfolio_df["portfolio_rank"] = range(1, len(portfolio_df) + 1)
+    portfolio_df.attrs["drop_reasons"] = drop_reasons
 
     final_count = len(portfolio_df)
     excluded_count = original_count - final_count

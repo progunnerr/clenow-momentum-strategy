@@ -157,6 +157,28 @@ class TestATRForUniverse:
 
         assert stock_b_atr > stock_a_atr
 
+    def test_calculate_atr_for_universe_ignores_leading_missing_rows(self):
+        """ATR should use valid OHLC rows when a ticker has leading empty data."""
+        dates = pd.date_range("2024-01-01", periods=40, freq="D")
+        close_prices = [np.nan] * 10 + [100.0] * 30
+
+        data = pd.DataFrame(
+            {
+                ("NEW", "Open"): close_prices,
+                ("NEW", "High"): [np.nan] * 10 + [102.0] * 30,
+                ("NEW", "Low"): [np.nan] * 10 + [98.0] * 30,
+                ("NEW", "Close"): close_prices,
+                ("NEW", "Volume"): [np.nan] * 10 + [1_000_000] * 30,
+            },
+            index=dates,
+        )
+        data.columns = pd.MultiIndex.from_tuples(data.columns, names=["Ticker", "Type"])
+
+        result = calculate_atr_for_universe(data, period=14)
+
+        assert result["ticker"].tolist() == ["NEW"]
+        assert result["atr"].iloc[0] > 0
+
 
 class TestPositionSizing:
     """Test position sizing calculations."""
@@ -286,6 +308,48 @@ class TestBuildPortfolio:
         portfolio = build_portfolio(filtered_stocks=empty_stocks, stock_data=stock_data)
 
         assert portfolio.empty
+
+    def test_build_portfolio_backfills_and_records_drop_reasons(self):
+        """Invalid top-ranked candidates should be reported and backfilled."""
+        dates = pd.date_range("2024-01-01", periods=40, freq="D")
+        tickers = ["HIGHVOL", "GOOD1", "GOOD2", "GOOD3"]
+        prices = {"HIGHVOL": 1000.0, "GOOD1": 100.0, "GOOD2": 110.0, "GOOD3": 120.0}
+        ranges = {"HIGHVOL": 200.0, "GOOD1": 5.0, "GOOD2": 5.0, "GOOD3": 5.0}
+
+        data_dict = {}
+        for ticker in tickers:
+            price = prices[ticker]
+            daily_range = ranges[ticker]
+            data_dict[(ticker, "Open")] = [price] * len(dates)
+            data_dict[(ticker, "High")] = [price + daily_range / 2] * len(dates)
+            data_dict[(ticker, "Low")] = [price - daily_range / 2] * len(dates)
+            data_dict[(ticker, "Close")] = [price] * len(dates)
+            data_dict[(ticker, "Volume")] = [1_000_000] * len(dates)
+
+        stock_data = pd.DataFrame(data_dict, index=dates)
+        stock_data.columns = pd.MultiIndex.from_tuples(stock_data.columns)
+        filtered_stocks = pd.DataFrame(
+            {
+                "ticker": tickers,
+                "momentum_score": [1.0, 0.9, 0.8, 0.7],
+                "current_price": [prices[ticker] for ticker in tickers],
+            }
+        )
+
+        portfolio = build_portfolio(
+            filtered_stocks=filtered_stocks,
+            stock_data=stock_data,
+            account_value=50000,
+            risk_per_trade=0.001,
+            atr_period=14,
+            max_positions=2,
+            min_position_value=100,
+        )
+
+        assert portfolio["ticker"].tolist() == ["GOOD1", "GOOD2"]
+        drop_reasons = portfolio.attrs["drop_reasons"]
+        assert drop_reasons[0]["ticker"] == "HIGHVOL"
+        assert "sized to 0 shares" in drop_reasons[0]["reason"]
 
 
 class TestApplyRiskLimits:
