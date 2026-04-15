@@ -20,7 +20,7 @@ from pathlib import Path
 import pandas as pd
 from loguru import logger
 
-from .sources.sp500_wikipedia import fetch_index_tickers_from_wikipedia
+from .sources.sp500_wikipedia import fetch_index_constituents_from_wikipedia
 from .sources.yfinance_source import (
     convert_ticker_for_yfinance,
     download_index_data,
@@ -74,32 +74,117 @@ def get_universe_tickers(
             logger.warning(f"Failed to load ticker cache for {spec.symbol}: {e}")
 
     try:
-        raw_tickers = fetch_index_tickers_from_wikipedia(spec, timeout=10)
-        if not raw_tickers:
-            raise RuntimeError(f"Wikipedia returned no tickers for {spec.display_name}")
-
-        tickers = [convert_ticker_for_yfinance(t) for t in raw_tickers]
-        logger.success(
-            f"Fetched {len(tickers)} {spec.display_name} tickers from Wikipedia"
+        constituents = get_universe_constituents(
+            spec.symbol, use_cache=use_cache, max_age_hours=max_age_hours
         )
-
-        if use_cache:
-            try:
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                with open(cache_file, "wb") as f:
-                    pickle.dump(
-                        {"tickers": tickers, "timestamp": datetime.now(), "count": len(tickers)},  # noqa: DTZ005
-                        f,
-                    )
-                logger.debug(f"Saved {spec.symbol} ticker cache ({len(tickers)} tickers)")
-            except Exception as e:
-                logger.warning(f"Failed to save ticker cache for {spec.symbol}: {e}")
+        tickers = constituents["ticker"].dropna().astype(str).tolist()
+        if not tickers:
+            raise RuntimeError(f"Wikipedia returned no tickers for {spec.display_name}")
 
         return tickers
 
     except Exception as e:
         logger.error(f"Failed to fetch {spec.display_name} tickers: {e}")
         raise RuntimeError(f"Unable to fetch {spec.display_name} tickers: {e}") from e
+
+
+def get_universe_constituents(
+    symbol: str,
+    use_cache: bool = True,
+    max_age_hours: int = 24,
+) -> pd.DataFrame:
+    """Get normalized universe constituents with optional metadata.
+
+    Args:
+        symbol:        IndexSymbol string ("SP500", "RUSSELL1000", ...).
+        use_cache:     Whether to use cached constituent metadata.
+        max_age_hours: Maximum cache age in hours.
+
+    Returns:
+        DataFrame with ticker, source_symbol, company_name, and sector.
+
+    Raises:
+        ValueError:   If symbol is not registered in UNIVERSES.
+        RuntimeError: If unable to fetch constituents from Wikipedia.
+    """
+    spec = get_universe_spec(symbol)
+    cache_dir = Path("data/cache")
+    constituents_cache_file = cache_dir / f"{spec.symbol}_constituents.pkl"
+    ticker_cache_file = cache_dir / f"{spec.symbol}_tickers.pkl"
+
+    if use_cache:
+        try:
+            with open(constituents_cache_file, "rb") as f:
+                cache_data = pickle.load(f)
+            cache_age = datetime.now() - cache_data["timestamp"]  # noqa: DTZ005
+            if cache_age < timedelta(hours=max_age_hours):
+                constituents = cache_data["constituents"]
+                logger.info(
+                    f"Loaded {len(constituents)} {spec.display_name} constituents from cache "
+                    f"(age: {cache_age.total_seconds() / 3600:.1f}h)"
+                )
+                return constituents
+            logger.debug(
+                f"Constituent cache expired for {spec.symbol} (age: {cache_age}), fetching fresh"
+            )
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to load constituent cache for {spec.symbol}: {e}")
+
+    try:
+        raw_constituents = fetch_index_constituents_from_wikipedia(spec, timeout=10)
+        if raw_constituents.empty:
+            raise RuntimeError(f"Wikipedia returned no constituents for {spec.display_name}")
+
+        constituents = raw_constituents.copy()
+        constituents["source_symbol"] = constituents["source_symbol"].astype(str)
+        constituents["ticker"] = constituents["source_symbol"].map(convert_ticker_for_yfinance)
+
+        for col in ("company_name", "sector"):
+            if col not in constituents.columns:
+                constituents[col] = pd.NA
+
+        constituents = constituents[
+            ["ticker", "source_symbol", "company_name", "sector"]
+        ].reset_index(drop=True)
+        tickers = constituents["ticker"].dropna().astype(str).tolist()
+
+        logger.success(
+            f"Fetched {len(constituents)} {spec.display_name} constituents from Wikipedia"
+        )
+
+        if use_cache:
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now()  # noqa: DTZ005
+                with open(constituents_cache_file, "wb") as f:
+                    pickle.dump(
+                        {
+                            "constituents": constituents,
+                            "timestamp": timestamp,
+                            "count": len(constituents),
+                        },
+                        f,
+                    )
+                with open(ticker_cache_file, "wb") as f:
+                    pickle.dump(
+                        {"tickers": tickers, "timestamp": timestamp, "count": len(tickers)},
+                        f,
+                    )
+                logger.debug(
+                    f"Saved {spec.symbol} constituent cache ({len(constituents)} rows)"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save constituent cache for {spec.symbol}: {e}")
+
+        return constituents
+
+    except Exception as e:
+        logger.error(f"Failed to fetch {spec.display_name} constituents: {e}")
+        raise RuntimeError(
+            f"Unable to fetch {spec.display_name} constituents: {e}"
+        ) from e
 
 
 def _fetch_single_ticker_data(

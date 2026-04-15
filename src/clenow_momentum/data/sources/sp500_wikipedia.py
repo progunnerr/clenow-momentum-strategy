@@ -6,11 +6,15 @@ existed before the universe registry was introduced.
 """
 
 from io import StringIO
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from loguru import logger
+
+if TYPE_CHECKING:
+    from ..universes import UniverseSpec
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -25,12 +29,24 @@ _DEFAULT_HEADERS = {
 }
 
 
-def fetch_index_tickers_from_wikipedia(
-    spec: "UniverseSpec",  # type: ignore[name-defined]  # noqa: F821
+def _fetch_wikipedia_html(
+    spec: "UniverseSpec",
     timeout: int = 10,
     headers: dict | None = None,
-) -> list[str]:
-    """Fetch constituent tickers for any universe described by a UniverseSpec.
+) -> str:
+    """Fetch the Wikipedia page HTML for a universe spec."""
+    if headers is None:
+        headers = _DEFAULT_HEADERS
+
+    logger.debug(f"Fetching {spec.display_name} constituents from Wikipedia: {spec.wiki_url}")
+
+    response = requests.get(spec.wiki_url, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    return response.text
+
+
+def _select_constituents_table(spec: "UniverseSpec", html: str) -> pd.DataFrame:
+    """Select the strict constituent table for a universe spec.
 
     Table selection is strict:
     - If spec.wiki_table_id is set, find that table by HTML id (required).
@@ -38,31 +54,10 @@ def fetch_index_tickers_from_wikipedia(
       spec.symbol_column_candidates and (b) has a row count within
       spec.expected_row_range. Exactly one match is required; zero or multiple
       matches raises ValueError with a diagnostic summary.
-
-    Args:
-        spec:    UniverseSpec from data/universes.py
-        timeout: HTTP timeout in seconds
-        headers: Optional HTTP headers (defaults to a browser-like UA)
-
-    Returns:
-        List of raw ticker symbols (not yet yfinance-normalised).
-
-    Raises:
-        requests.RequestException: If the HTTP request fails.
-        ValueError: If table selection is ambiguous, missing, or the symbol
-                    column cannot be found.
     """
-    if headers is None:
-        headers = _DEFAULT_HEADERS
-
-    logger.debug(f"Fetching {spec.display_name} tickers from Wikipedia: {spec.wiki_url}")
-
-    response = requests.get(spec.wiki_url, headers=headers, timeout=timeout)
-    response.raise_for_status()
-
     if spec.wiki_table_id is not None:
         # --- id-based lookup (fast, unambiguous) ---
-        soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(html, "html.parser")
         table_tag = soup.find("table", {"id": spec.wiki_table_id})
         if table_tag is None:
             raise ValueError(
@@ -77,7 +72,7 @@ def fetch_index_tickers_from_wikipedia(
         df = df_list[0]
     else:
         # --- filter-based lookup (strict) ---
-        all_tables = pd.read_html(StringIO(response.text))
+        all_tables = pd.read_html(StringIO(html))
         lo, hi = spec.expected_row_range
         candidates = []
         for i, df in enumerate(all_tables):
@@ -109,18 +104,94 @@ def fetch_index_tickers_from_wikipedia(
 
         _, df = candidates[0]
 
+    return df
+
+
+def _resolve_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    """Return the first matching column name from candidate names."""
+    return next((c for c in candidates if c in df.columns), None)
+
+
+def fetch_index_constituents_from_wikipedia(
+    spec: "UniverseSpec",
+    timeout: int = 10,
+    headers: dict | None = None,
+) -> pd.DataFrame:
+    """Fetch raw constituent metadata for any universe described by a UniverseSpec.
+
+    Returns source-table symbols and optional metadata. Tickers are not
+    yfinance-normalized here; normalization happens in the provider layer.
+
+    Args:
+        spec: UniverseSpec from data/universes.py
+        timeout: HTTP timeout in seconds
+        headers: Optional HTTP headers (defaults to a browser-like UA)
+
+    Returns:
+        DataFrame with source_symbol, company_name, and sector columns.
+
+    Raises:
+        requests.RequestException: If the HTTP request fails.
+        ValueError: If table selection is ambiguous, missing, or the symbol
+                    column cannot be found.
+    """
+    html = _fetch_wikipedia_html(spec, timeout=timeout, headers=headers)
+    df = _select_constituents_table(spec, html)
+
     # --- resolve symbol column ---
-    col = next(
-        (c for c in spec.symbol_column_candidates if c in df.columns),
-        None,
-    )
+    col = _resolve_column(df, spec.symbol_column_candidates)
     if col is None:
         raise ValueError(
             f"[{spec.display_name}] None of {spec.symbol_column_candidates} "
             f"found in table columns: {df.columns.tolist()}"
         )
 
-    tickers = df[col].dropna().astype(str).tolist()
+    company_col = _resolve_column(df, spec.company_column_candidates)
+    sector_col = _resolve_column(df, spec.sector_column_candidates)
+
+    if company_col is None:
+        logger.warning(
+            f"[{spec.display_name}] Company metadata unavailable. "
+            f"Tried columns: {spec.company_column_candidates}"
+        )
+    if sector_col is None:
+        logger.warning(
+            f"[{spec.display_name}] Sector metadata unavailable. "
+            f"Tried columns: {spec.sector_column_candidates}"
+        )
+
+    constituents = pd.DataFrame(
+        {
+            "source_symbol": df[col],
+            "company_name": df[company_col] if company_col else pd.NA,
+            "sector": df[sector_col] if sector_col else pd.NA,
+        }
+    )
+    constituents = constituents.dropna(subset=["source_symbol"])
+    constituents["source_symbol"] = constituents["source_symbol"].astype(str).str.strip()
+    constituents = constituents[constituents["source_symbol"] != ""]
+    constituents = constituents.reset_index(drop=True)
+
+    logger.info(
+        f"Fetched {len(constituents)} {spec.display_name} constituents from Wikipedia"
+    )
+    return constituents
+
+
+def fetch_index_tickers_from_wikipedia(
+    spec: "UniverseSpec",
+    timeout: int = 10,
+    headers: dict | None = None,
+) -> list[str]:
+    """Fetch raw constituent tickers for any universe described by a UniverseSpec.
+
+    This is the ticker-only compatibility wrapper around
+    fetch_index_constituents_from_wikipedia().
+    """
+    constituents = fetch_index_constituents_from_wikipedia(
+        spec, timeout=timeout, headers=headers
+    )
+    tickers = constituents["source_symbol"].dropna().astype(str).tolist()
     logger.info(f"Fetched {len(tickers)} {spec.display_name} tickers from Wikipedia")
     return tickers
 

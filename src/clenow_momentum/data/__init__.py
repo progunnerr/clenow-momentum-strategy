@@ -5,6 +5,7 @@ Supports multiple market universes via the universe registry.
 
 Generic entry points (universe-aware):
     get_universe_tickers(symbol)  — constituents for any registered universe
+    get_universe_constituents(symbol) — constituents with metadata
     get_benchmark_data(symbol)    — regime-detection ETF OHLCV
     get_index_data(symbol)        — index-quote OHLCV
     get_stock_data(tickers)       — OHLCV for an arbitrary ticker list
@@ -32,6 +33,7 @@ from .provider import (
     get_sp500_index_data,
     get_sp500_tickers,
     get_stock_data,
+    get_universe_constituents,
     get_universe_tickers,
 )
 from .universes import UNIVERSES, UniverseSpec, get_universe_spec
@@ -39,6 +41,7 @@ from .universes import UNIVERSES, UniverseSpec, get_universe_spec
 __all__ = [
     # Generic universe-aware entry points
     "get_universe_tickers",
+    "get_universe_constituents",
     "get_benchmark_data",
     "get_index_data",
     "get_stock_data",

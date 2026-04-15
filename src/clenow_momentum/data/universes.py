@@ -23,6 +23,8 @@ class UniverseSpec:
         wiki_url:                 Wikipedia page URL for constituent list
         wiki_table_id:            HTML table id to select (None → auto-select by filter)
         symbol_column_candidates: Column name(s) to try in order for ticker symbols
+        company_column_candidates: Column name(s) to try for company/security name
+        sector_column_candidates: Column name(s) to try for sector metadata
         expected_row_range:       Plausible (min, max) row count for the constituents table
         benchmark_etf:            Tradable ETF used for regime detection ("SPY", "IWB")
         benchmark_index:          Index quote symbol for analytics ("^GSPC", "^RUI")
@@ -36,6 +38,8 @@ class UniverseSpec:
     expected_row_range: tuple[int, int]
     benchmark_etf: str
     benchmark_index: str
+    company_column_candidates: tuple[str, ...] = ("Security", "Company", "Company Name", "Name")
+    sector_column_candidates: tuple[str, ...] = ("GICS Sector", "Sector")
 
 
 UNIVERSES: dict[str, UniverseSpec] = {

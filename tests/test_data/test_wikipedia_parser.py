@@ -9,8 +9,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.clenow_momentum.data.sources.sp500_wikipedia import fetch_index_tickers_from_wikipedia
-from src.clenow_momentum.data.universes import UNIVERSES, UniverseSpec
+from src.clenow_momentum.data.sources.sp500_wikipedia import (
+    fetch_index_constituents_from_wikipedia,
+    fetch_index_tickers_from_wikipedia,
+)
+from src.clenow_momentum.data.universes import UNIVERSES
 
 
 # ---------------------------------------------------------------------------
@@ -19,11 +22,14 @@ from src.clenow_momentum.data.universes import UNIVERSES, UniverseSpec
 
 def _make_sp500_html(tickers: list[str]) -> str:
     """Minimal S&P 500 Wikipedia page with id='constituents' table."""
-    rows = "\n".join(f"<tr><td>{t}</td><td>Company {t}</td></tr>" for t in tickers)
+    rows = "\n".join(
+        f"<tr><td>{t}</td><td>Company {t}</td><td>Technology</td></tr>"
+        for t in tickers
+    )
     return f"""
     <html><body>
     <table id="constituents">
-      <thead><tr><th>Symbol</th><th>Security</th></tr></thead>
+      <thead><tr><th>Symbol</th><th>Security</th><th>GICS Sector</th></tr></thead>
       <tbody>{rows}</tbody>
     </table>
     </body></html>
@@ -32,12 +38,15 @@ def _make_sp500_html(tickers: list[str]) -> str:
 
 def _make_russell_html(tickers: list[str], col_name: str = "Symbol") -> str:
     """Minimal Russell 1000 page with a matching table (no stable id)."""
-    rows = "\n".join(f"<tr><td>{t}</td></tr>" for t in tickers)
+    rows = "\n".join(
+        f"<tr><td>{t}</td><td>Company {t}</td><td>Industrials</td></tr>"
+        for t in tickers
+    )
     return f"""
     <html><body>
     <p>Some intro text</p>
     <table>
-      <thead><tr><th>{col_name}</th></tr></thead>
+      <thead><tr><th>{col_name}</th><th>Company</th><th>GICS Sector</th></tr></thead>
       <tbody>{rows}</tbody>
     </table>
     </body></html>
@@ -93,6 +102,20 @@ class TestSP500Fetcher:
         assert result[0] == "T000"
 
     @patch("src.clenow_momentum.data.sources.sp500_wikipedia.requests.get")
+    def test_returns_constituent_metadata(self, mock_get):
+        tickers = [f"T{i:03d}" for i in range(503)]
+        mock_get.return_value = _mock_response(_make_sp500_html(tickers))
+
+        result = fetch_index_constituents_from_wikipedia(self.SP500)
+
+        assert list(result.columns) == ["source_symbol", "company_name", "sector"]
+        assert result.iloc[0].to_dict() == {
+            "source_symbol": "T000",
+            "company_name": "Company T000",
+            "sector": "Technology",
+        }
+
+    @patch("src.clenow_momentum.data.sources.sp500_wikipedia.requests.get")
     def test_missing_table_id_raises(self, mock_get):
         mock_get.return_value = _mock_response("<html><body><p>no table</p></body></html>")
 
@@ -136,6 +159,17 @@ class TestRussell1000Fetcher:
         result = fetch_index_tickers_from_wikipedia(self.R1K)
 
         assert len(result) == 1000
+
+    @patch("src.clenow_momentum.data.sources.sp500_wikipedia.requests.get")
+    def test_returns_constituent_metadata(self, mock_get):
+        tickers = [f"T{i:04d}" for i in range(1000)]
+        mock_get.return_value = _mock_response(_make_russell_html(tickers, col_name="Symbol"))
+
+        result = fetch_index_constituents_from_wikipedia(self.R1K)
+
+        assert result.loc[0, "source_symbol"] == "T0000"
+        assert result.loc[0, "company_name"] == "Company T0000"
+        assert result.loc[0, "sector"] == "Industrials"
 
     @patch("src.clenow_momentum.data.sources.sp500_wikipedia.requests.get")
     def test_returns_tickers_ticker_column(self, mock_get):

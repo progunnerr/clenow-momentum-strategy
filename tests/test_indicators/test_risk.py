@@ -247,6 +247,10 @@ class TestBuildPortfolio:
                 "current_price": [150, 300, 2500],
                 "annualized_slope": [1.2, 1.0, 0.8],
                 "r_squared": [0.85, 0.80, 0.75],
+                "period_return_pct": [12.5, 8.0, 5.5],
+                "price_vs_ma": [0.10, 0.08, 0.05],
+                "company_name": ["Apple Inc.", "Microsoft Corp.", "Alphabet Inc."],
+                "sector": ["Technology", "Technology", "Communication Services"],
             }
         )
 
@@ -299,6 +303,19 @@ class TestBuildPortfolio:
         # Current implementation preserves incoming momentum order.
         assert portfolio["ticker"].tolist() == ["AAPL", "MSFT", "GOOGL"]
         assert portfolio["portfolio_rank"].tolist() == [1, 2, 3]
+        assert portfolio["company_name"].tolist() == [
+            "Apple Inc.",
+            "Microsoft Corp.",
+            "Alphabet Inc.",
+        ]
+        assert portfolio["sector"].tolist() == [
+            "Technology",
+            "Technology",
+            "Communication Services",
+        ]
+        assert portfolio["r_squared"].tolist() == [0.85, 0.80, 0.75]
+        assert portfolio["period_return_pct"].tolist() == [12.5, 8.0, 5.5]
+        assert portfolio["price_vs_ma"].tolist() == [0.10, 0.08, 0.05]
 
     def test_build_portfolio_empty_stocks(self):
         """Test portfolio building with empty stock list."""

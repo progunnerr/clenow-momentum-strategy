@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Initialize logger configuration
 
-from clenow_momentum.data import get_stock_data, get_universe_tickers
+from clenow_momentum.data import get_stock_data, get_universe_constituents
 from clenow_momentum.data.sources.yfinance_adapter import (
     WikipediaTickerAdapter,
     YFinanceMarketDataAdapter,
@@ -57,6 +57,56 @@ def has_error(result: dict) -> bool:
 
 
 MA_ALIGNMENT_TARGET = "10 EMA > 20 SMA > 50 SMA > 200 SMA"
+
+
+def attach_constituent_metadata(stocks_df: pd.DataFrame, constituents_df: pd.DataFrame) -> pd.DataFrame:
+    """Attach optional company/sector metadata by normalized ticker."""
+    if stocks_df.empty or constituents_df.empty:
+        return stocks_df
+
+    metadata_cols = [
+        col for col in ("ticker", "company_name", "sector") if col in constituents_df.columns
+    ]
+    if "ticker" not in metadata_cols:
+        return stocks_df
+
+    metadata = constituents_df[metadata_cols].drop_duplicates(subset=["ticker"])
+    return stocks_df.merge(metadata, on="ticker", how="left")
+
+
+def format_optional_text(value, max_len: int = 22) -> str:
+    """Format optional table text with compact truncation."""
+    if value is None or pd.isna(value):
+        return "N/A"
+
+    text = str(value).strip()
+    if not text:
+        return "N/A"
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3]}..."
+
+
+def format_optional_number(value, decimals: int = 3) -> str:
+    """Format optional numeric diagnostics."""
+    if value is None or pd.isna(value):
+        return "N/A"
+
+    numeric = float(value)
+    if not isfinite(numeric):
+        return "N/A"
+    return f"{numeric:.{decimals}f}"
+
+
+def format_optional_percent(value, decimals: int = 1, scale: float = 1.0) -> str:
+    """Format optional percent diagnostics with a visible sign."""
+    if value is None or pd.isna(value):
+        return "N/A"
+
+    numeric = float(value)
+    if not isfinite(numeric):
+        return "N/A"
+    return f"{numeric * scale:+.{decimals}f}%"
 
 
 def format_ma_stack(short_mas: dict, long_term_ma: float | None) -> str:
@@ -170,7 +220,7 @@ def fetch_and_process_data(tickers, config):
     return stock_data, momentum_df
 
 
-def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
+def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed, constituents_df):
     """Apply filters and select stocks for portfolio."""
     stocks_for_portfolio = pd.DataFrame()
 
@@ -188,6 +238,7 @@ def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
         )
 
         print(f"✅ {len(filtered_stocks)} stocks passed all filters.")
+        filtered_stocks = attach_constituent_metadata(filtered_stocks, constituents_df)
 
         # Size all filtered stocks so invalid/zero-share candidates can be
         # backfilled by the next ranked valid names.
@@ -204,6 +255,7 @@ def check_and_filter_stocks(momentum_df, stock_data, config, trading_allowed):
         )
         # For informational purposes, show the top 20% unfiltered
         final_stocks = get_top_momentum_stocks(momentum_df, top_pct=config["top_momentum_pct"])
+        final_stocks = attach_constituent_metadata(final_stocks, constituents_df)
 
     return stocks_for_portfolio, final_stocks
 
@@ -222,8 +274,13 @@ def display_portfolio_table(portfolio_df, config):
             [
                 int(row["portfolio_rank"]),
                 row["ticker"],
+                format_optional_text(row.get("company_name"), max_len=20),
+                format_optional_text(row.get("sector"), max_len=18),
                 f"{row['momentum_score']:.3f}",
+                format_optional_number(row.get("r_squared"), decimals=3),
+                format_optional_percent(row.get("period_return_pct"), scale=1.0),
                 f"${row['current_price']:.2f}",
+                format_optional_percent(row.get("price_vs_ma"), scale=100.0),
                 f"${row['atr']:.2f}",
                 int(row["shares"]),
                 f"${row['investment']:,.0f}",
@@ -236,8 +293,13 @@ def display_portfolio_table(portfolio_df, config):
     headers = [
         "Rank",
         "Ticker",
+        "Company",
+        "Sector",
         "Momentum",
+        "R²",
+        "90d Return %",
         "Price",
+        f"Price vs {config['ma_filter_period']}d MA %",
         "ATR",
         "Shares",
         "Investment",
@@ -375,16 +437,17 @@ def main(force_execution: bool = False):
     # Show position sizing guidance
     print_account_sizing(config)
 
-    # Step 1: Get universe tickers (driven by MARKET_UNIVERSE env var / config)
+    # Step 1: Get universe constituents (driven by MARKET_UNIVERSE env var / config)
     universe = config.get("universe", "SP500")
-    print(f"Step 1: Fetching {universe} tickers...")
-    tickers = get_universe_tickers(universe)
+    print(f"Step 1: Fetching {universe} constituents...")
+    constituents_df = get_universe_constituents(universe)
+    tickers = constituents_df["ticker"].dropna().astype(str).tolist()
 
     if not tickers:
         print("❌ Could not retrieve tickers. Exiting.")
         return 1
 
-    print(f"✅ Successfully fetched {len(tickers)} {universe} tickers")
+    print(f"✅ Successfully fetched {len(tickers)} {universe} constituents")
     print("Sample tickers:", tickers[:10])
     print()
 
@@ -735,7 +798,7 @@ def main(force_execution: bool = False):
     # Step 5: Apply trading filters to find eligible stocks
     print("Step 5: Applying trading filters...")
     stocks_for_portfolio, final_stocks = check_and_filter_stocks(
-        momentum_df, stock_data, config, trading_allowed
+        momentum_df, stock_data, config, trading_allowed, constituents_df
     )
     print()
 

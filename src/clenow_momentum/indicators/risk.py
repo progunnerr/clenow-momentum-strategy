@@ -11,6 +11,21 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+OPTIONAL_PORTFOLIO_FIELDS = (
+    "company_name",
+    "sector",
+    "r_squared",
+    "period_return_pct",
+    "price_vs_ma",
+)
+
+
+def _copy_optional_portfolio_fields(row, result: dict) -> None:
+    """Copy optional diagnostics/metadata from source row into position result."""
+    for field in OPTIONAL_PORTFOLIO_FIELDS:
+        if field in row:
+            result[field] = row[field]
+
 
 def calculate_true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     """
@@ -311,9 +326,7 @@ def calculate_equal_dollar_position(
         "stop_loss_multiplier": stop_loss_multiplier,
     }
 
-    # Add filter-specific data if available
-    if "price_vs_ma" in row:
-        result["price_vs_ma"] = row["price_vs_ma"]
+    _copy_optional_portfolio_fields(row, result)
 
     return result
 
@@ -374,9 +387,7 @@ def calculate_risk_based_position(
             "stop_loss_multiplier": position["stop_loss_multiplier"],
         }
 
-        # Add filter-specific data if available
-        if "price_vs_ma" in row:
-            result["price_vs_ma"] = row["price_vs_ma"]
+        _copy_optional_portfolio_fields(row, result)
 
         return result
 
